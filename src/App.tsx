@@ -1,4 +1,5 @@
 import { MarketplacesPage } from "./Marketplaces";
+import { SetupReview } from "./SetupReview";
 import {
   useEffect,
   useState,
@@ -116,6 +117,7 @@ function ToolsChoice({
 }
 
 export function App() {
+  const [setupReviewOpen, setSetupReviewOpen] = useState(false);
   const [inventory, setInventory] = useState<InventoryView>(),
     [view, setView] = useState<View>("library");
   const [search, setSearch] = useState(""),
@@ -182,6 +184,7 @@ export function App() {
   const latest = history.find((h) => h.status === "committed")?.id;
   return (
     <div className="app-shell">
+      <SetupReview open={setupReviewOpen} onOpenChange={setSetupReviewOpen} />
       <aside className="sidebar">
         <a
           className="brand"
@@ -270,6 +273,13 @@ export function App() {
             </p>
           </div>
           <div className="header-actions">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSetupReviewOpen(true)}
+            >
+              Review setup
+            </Button>
             <Button
               variant="outline"
               size="sm"

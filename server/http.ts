@@ -5,9 +5,11 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { SkillLibrary, LibraryError, type Tool } from "./library.ts";
 
 import { Marketplaces } from "./marketplaces.ts";
+import { installedAgents, runReview } from "./review.ts";
 
 export function createServer(library: SkillLibrary, webDir: string) {
   const marketplaces = new Marketplaces(library);
+  let reviewing = false;
   const token = randomBytes(32).toString("hex");
   const send = (res: http.ServerResponse, status: number, data: unknown) => {
     res.writeHead(status, {
@@ -68,6 +70,8 @@ export function createServer(library: SkillLibrary, webDir: string) {
             })),
           });
         }
+        if (url.pathname === "/api/review/agents" && req.method === "GET")
+          return send(res, 200, installedAgents());
         if (url.pathname === "/api/history" && req.method === "GET")
           return send(
             res,
@@ -104,6 +108,23 @@ export function createServer(library: SkillLibrary, webDir: string) {
             throw new LibraryError("Missing field: " + key);
           return body[key] as string;
         };
+        if (url.pathname === "/api/review" && req.method === "POST") {
+          if (reviewing)
+            throw new LibraryError(
+              "A setup review is already running. Wait for it to finish.",
+              409,
+            );
+          reviewing = true;
+          try {
+            return send(
+              res,
+              200,
+              await runReview(library, string("agent") as Tool),
+            );
+          } finally {
+            reviewing = false;
+          }
+        }
         if (url.pathname === "/api/marketplaces") {
           if (req.method === "GET") return send(res, 200, marketplaces.list());
           if (req.method === "POST")
