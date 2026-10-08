@@ -111,3 +111,91 @@ test("stale previews and packages containing symlinks cannot install", () => {
     fs.rmSync(f.home, { recursive: true });
   }
 });
+
+test("refresh replaces the catalogue snapshot while preserving installed packages", async () => {
+  const f = fixture();
+  let commit = "first",
+    fail = false;
+  const marketplaces = new Marketplaces(f.library, async (_repo, directory) => {
+    if (fail) throw new Error("Network unavailable");
+    fs.cpSync(path.dirname(f.directory), path.join(directory, "skills"), {
+      recursive: true,
+    });
+    return commit;
+  });
+  try {
+    const source = await marketplaces.add("test/skills");
+    const preview = marketplaces.preview(
+      source.id,
+      marketplaces.catalogue(source.id)[0].id,
+    );
+    marketplaces.install(source.id, preview.id, preview.hash, ["codex"]);
+    const installed = f.library.skill("sample").variants[0].hash;
+    fs.appendFileSync(
+      path.join(f.directory, "SKILL.md"),
+      "New upstream instructions",
+    );
+    commit = "second";
+    const updated = await marketplaces.refresh(source.id);
+    assert.equal(updated.commit, "second");
+    assert.equal(updated.addedAt, source.addedAt);
+    assert.ok(updated.refreshedAt);
+    assert.match(
+      marketplaces.preview(source.id, preview.id).content,
+      /New upstream/,
+    );
+    assert.equal(f.library.skill("sample").variants[0].hash, installed);
+    assert.throws(
+      () =>
+        marketplaces.install(source.id, preview.id, preview.hash, ["codex"]),
+      /changed/,
+    );
+    fail = true;
+    await assert.rejects(
+      marketplaces.refresh(source.id),
+      /Network unavailable/,
+    );
+    assert.equal(
+      marketplaces.list().find((s) => s.id === source.id)?.commit,
+      "second",
+    );
+    assert.match(
+      marketplaces.preview(source.id, preview.id).content,
+      /New upstream/,
+    );
+    assert.deepEqual(
+      fs
+        .readdirSync(marketplaces.root)
+        .filter((name) => name.startsWith(source.id + "-")),
+      [],
+    );
+  } finally {
+    fs.rmSync(f.home, { recursive: true });
+  }
+});
+
+test("a removed marketplace is not resurrected by an in-flight refresh", async () => {
+  const f = fixture();
+  let duringClone = () => {};
+  const marketplaces = new Marketplaces(f.library, async (_repo, directory) => {
+    fs.cpSync(path.dirname(f.directory), path.join(directory, "skills"), {
+      recursive: true,
+    });
+    duringClone();
+    return "commit";
+  });
+  try {
+    const source = await marketplaces.add("test/skills");
+    duringClone = () => marketplaces.remove(source.id);
+    await assert.rejects(
+      marketplaces.refresh(source.id),
+      /changed during refresh/,
+    );
+    assert.equal(
+      marketplaces.list().some((s) => s.id === source.id),
+      false,
+    );
+  } finally {
+    fs.rmSync(f.home, { recursive: true });
+  }
+});

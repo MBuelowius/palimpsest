@@ -28,11 +28,13 @@ palimpsest list [--json]               List personal and shared skills
 palimpsest inspect <name>              Read versions, issues, and diffs
 palimpsest share <name> --source <id>   Preview sharing; add --apply to commit
 palimpsest share-identical             Preview identical packages; add --apply
+palimpsest sync                        Preview existing skill sync; add --apply
 palimpsest enable <name> <harness>
 palimpsest disable <name> <harness>
 palimpsest marketplace list           List marketplace sources
 palimpsest marketplace add <repo>     Add a public GitHub source
 palimpsest marketplace browse <id>    List skills in a source
+palimpsest marketplace refresh <id>   Download the latest source snapshot
 palimpsest marketplace inspect <id> <skill-id>
 palimpsest marketplace install <id> <skill-id> [--apply]
 palimpsest marketplace remove <id>    Unregister a source
@@ -64,6 +66,7 @@ async function main() {
     if (!id) throw new Error("Provide a repository or source ID.");
     if (action === "add") return print(await marketplaces.add(id));
     if (action === "browse") return print(marketplaces.catalogue(id));
+    if (action === "refresh") return print(await marketplaces.refresh(id));
     if (action === "remove") {
       marketplaces.remove(id);
       return print({ removed: id });
@@ -221,6 +224,18 @@ async function main() {
   }
   if (command === "share-identical") {
     print(library.shareIdentical(!args.includes("--apply")));
+    return;
+  }
+  if (command === "sync") {
+    const preview = library.syncPlan(tools);
+    print(
+      args.includes("--apply") && preview.plans.length
+        ? {
+            ...library.sync(preview.plans, preview.tools),
+            skipped: preview.skipped,
+          }
+        : preview,
+    );
     return;
   }
   if (command === "history") {
