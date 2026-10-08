@@ -1,3 +1,4 @@
+import { MarketplacesPage } from "./Marketplaces";
 import {
   useEffect,
   useState,
@@ -6,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import {
-  BookOpen,
+  Store,
   Search,
   RefreshCw,
   Plus,
@@ -51,7 +52,8 @@ import {
 import type { Tool } from "../server/library";
 import { cn } from "@/lib/utils";
 
-type View = "library" | "review" | "shared" | "history" | "settings";
+type View =
+  "library" | "review" | "shared" | "history" | "settings" | "marketplaces";
 const sourceLabel: Record<string, string> = {
   claude: "Claude",
   codex: "Codex · legacy folder",
@@ -68,14 +70,7 @@ const shorten = (p: string) => p.replace(/^\/Users\/[^/]+/, "~");
 
 function Status({ status }: { status: string }) {
   return (
-    <Badge
-      variant="outline"
-      className={cn(
-        "status-badge",
-        status === "conflict" && "status-conflict",
-        status === "shared" && "status-shared",
-      )}
-    >
+    <Badge variant="outline" className="status-badge">
       {status === "shared" ? (
         <Link2 size={12} />
       ) : status === "conflict" ? (
@@ -180,8 +175,9 @@ export function App() {
     library: "Your skills",
     review: "Needs review",
     shared: "Shared skills",
-    history: "Activity & backups",
+    history: "Backups",
     settings: "Locations",
+    marketplaces: "Marketplaces",
   }[view];
   const latest = history.find((h) => h.status === "committed")?.id;
   return (
@@ -195,12 +191,7 @@ export function App() {
             setView("library");
           }}
         >
-          <span className="brand-mark">
-            <BookOpen size={19} />
-          </span>
-          <span>
-            Skill Library<small>ON THIS MAC</small>
-          </span>
+          <span>Skills</span>
         </a>
         <nav aria-label="Library navigation">
           {(
@@ -236,13 +227,20 @@ export function App() {
               <span className="nav-count">{item.count ?? "—"}</span>
             </button>
           ))}
+          <button
+            className={cn("nav-item", view === "marketplaces" && "nav-active")}
+            onClick={() => setView("marketplaces")}
+          >
+            <Store size={17} />
+            <span>Marketplaces</span>
+          </button>
           <div className="nav-divider" />
           <button
             className={cn("nav-item", view === "history" && "nav-active")}
             onClick={() => setView("history")}
           >
             <HistoryIcon size={17} />
-            <span>Activity & backups</span>
+            <span>Backups</span>
           </button>
           <button
             className={cn("nav-item", view === "settings" && "nav-active")}
@@ -260,14 +258,15 @@ export function App() {
       <main className="main-panel">
         <header className="page-header">
           <div>
-            <div className="eyebrow">PERSONAL LIBRARY</div>
             <h1>{title}</h1>
             <p>
               {view === "history"
                 ? "Every change has a backup. Restore the latest operation first."
                 : view === "settings"
                   ? "One shared package, linked to the apps you choose."
-                  : "Write a skill once. Use the same files in Claude and Codex."}
+                  : view === "marketplaces"
+                    ? "Browse and install skills from GitHub."
+                    : `${inventory?.counts.total ?? 0} skills on this Mac`}
             </p>
           </div>
           <div className="header-actions">
@@ -315,153 +314,135 @@ export function App() {
             </Button>
           </div>
         )}
-        {view !== "history" && view !== "settings" && (
-          <>
-            <section className="library-summary" aria-label="Library status">
-              <div>
-                <strong>{inventory?.counts.total ?? "—"}</strong>
-                <span>personal skills</span>
-              </div>
-              <div>
-                <strong>{inventory?.counts.shared ?? "—"}</strong>
-                <span>use shared files</span>
-              </div>
-              <div>
-                <strong>{inventory?.counts.conflicts ?? "—"}</strong>
-                <span>have different versions</span>
-              </div>
-              <p>
-                <Link2 size={16} />
-                Sharing keeps scripts and references together.
-              </p>
-            </section>
-            <div className="toolbar">
-              <div className="search-field">
-                <Search size={17} />
-                <Input
-                  aria-label="Search skills"
-                  placeholder="Search skills or descriptions…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              <select
-                aria-label="Filter by app"
-                value={toolFilter}
-                onChange={(e) => setToolFilter(e.target.value)}
-              >
-                <option value="all">All apps</option>
-                <option value="claude">Claude</option>
-                <option value="codex">Codex</option>
-              </select>
-              <select
-                aria-label="Filter by sharing status"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">All statuses</option>
-                {Object.entries(statusLabel).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              <span className="result-count">{skills.length} skills</span>
-            </div>
-            <section className="skill-table" aria-label="Skills">
-              <div className="table-heading">
-                <span>SKILL</span>
-                <span>CLAUDE</span>
-                <span>CODEX</span>
-                <span>STATUS</span>
-                <span />
-              </div>
-              {loading && !inventory ? (
-                <Empty>Reading your skill folders…</Empty>
-              ) : !skills.length ? (
-                <Empty>
-                  {search
-                    ? "No skills match this search."
-                    : "No skills in this view."}
-                </Empty>
-              ) : (
-                skills.map((skill) => (
-                  <button
-                    className="skill-row"
-                    key={skill.name}
-                    onClick={() => setSelected(skill.name)}
-                    aria-label={`Open ${skill.name}`}
-                  >
-                    <span className="skill-name">
-                      <span className="skill-icon">
-                        <FileText size={18} />
-                      </span>
-                      <span>
-                        <strong>{skill.name}</strong>
-                        <small>
-                          {skill.description ||
-                            "No description. Open to review the metadata."}
-                        </small>
-                      </span>
-                    </span>
-                    <span
-                      className={cn(
-                        "app-cell",
-                        !skill.tools.includes("claude") && "app-off",
-                      )}
-                    >
-                      {skill.tools.includes("claude") ? (
-                        <>
-                          <Check size={13} />
-                          Available
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </span>
-                    <span
-                      className={cn(
-                        "app-cell",
-                        !skill.tools.includes("codex") && "app-off",
-                      )}
-                    >
-                      {skill.tools.includes("codex") ? (
-                        <>
-                          <Check size={13} />
-                          Available
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </span>
-                    <Status status={skill.status} />
-                    <ChevronRight size={16} className="row-arrow" />
-                  </button>
-                ))
-              )}
-            </section>
-            <div className="table-footnote">
-              <Terminal size={14} />
-              <span>
-                Personal skill folders only. App-managed plugins, synced skills,
-                system skills, and trash stay with their apps.
-              </span>
-            </div>
-            {!!inventory?.scanIssues.length && (
-              <div className="message error">
-                <AlertCircle size={16} />
-                <details>
-                  <summary>
-                    {inventory.scanIssues.length} folders could not be read
-                  </summary>
-                  {inventory.scanIssues.map((issue) => (
-                    <p key={issue}>{shorten(issue)}</p>
+        {view !== "history" &&
+          view !== "settings" &&
+          view !== "marketplaces" && (
+            <>
+              <div className="toolbar">
+                <div className="search-field">
+                  <Search size={17} />
+                  <Input
+                    aria-label="Search skills"
+                    placeholder="Search skills or descriptions…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+                <select
+                  aria-label="Filter by app"
+                  value={toolFilter}
+                  onChange={(e) => setToolFilter(e.target.value)}
+                >
+                  <option value="all">All apps</option>
+                  <option value="claude">Claude</option>
+                  <option value="codex">Codex</option>
+                </select>
+                <select
+                  aria-label="Filter by sharing status"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="all">All statuses</option>
+                  {Object.entries(statusLabel).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
                   ))}
-                </details>
+                </select>
+                <span className="result-count">{skills.length} skills</span>
               </div>
-            )}
-          </>
-        )}
+              <section className="skill-table" aria-label="Skills">
+                <div className="table-heading">
+                  <span>Skill</span>
+                  <span>Claude</span>
+                  <span>Codex</span>
+                  <span>Status</span>
+                  <span />
+                </div>
+                {loading && !inventory ? (
+                  <Empty>Reading your skill folders…</Empty>
+                ) : !skills.length ? (
+                  <Empty>
+                    {search
+                      ? "No skills match this search."
+                      : "No skills in this view."}
+                  </Empty>
+                ) : (
+                  skills.map((skill) => (
+                    <button
+                      className="skill-row"
+                      key={skill.name}
+                      onClick={() => setSelected(skill.name)}
+                      aria-label={`Open ${skill.name}`}
+                    >
+                      <span className="skill-name">
+                        <span>
+                          <strong>{skill.name}</strong>
+                          <small>
+                            {skill.description ||
+                              "No description. Open to review the metadata."}
+                          </small>
+                        </span>
+                      </span>
+                      <span
+                        className={cn(
+                          "app-cell",
+                          !skill.tools.includes("claude") && "app-off",
+                        )}
+                      >
+                        {skill.tools.includes("claude") ? (
+                          <>
+                            <Check size={13} />
+                            Available
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </span>
+                      <span
+                        className={cn(
+                          "app-cell",
+                          !skill.tools.includes("codex") && "app-off",
+                        )}
+                      >
+                        {skill.tools.includes("codex") ? (
+                          <>
+                            <Check size={13} />
+                            Available
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </span>
+                      <Status status={skill.status} />
+                      <ChevronRight size={16} className="row-arrow" />
+                    </button>
+                  ))
+                )}
+              </section>
+              <div className="table-footnote">
+                <Terminal size={14} />
+                <span>
+                  Personal skill folders only. App-managed plugins, synced
+                  skills, system skills, and trash stay with their apps.
+                </span>
+              </div>
+              {!!inventory?.scanIssues.length && (
+                <div className="message error">
+                  <AlertCircle size={16} />
+                  <details>
+                    <summary>
+                      {inventory.scanIssues.length} folders could not be read
+                    </summary>
+                    {inventory.scanIssues.map((issue) => (
+                      <p key={issue}>{shorten(issue)}</p>
+                    ))}
+                  </details>
+                </div>
+              )}
+            </>
+          )}
+        {view === "marketplaces" && <MarketplacesPage onInstalled={refresh} />}
         {view === "history" && (
           <section className="history-list">
             {!history.length ? (
@@ -1117,7 +1098,7 @@ function SkillDialog({
             )}
             <p className="muted">
               A complete backup is saved before any folder is replaced. Restore
-              it from Activity & backups.
+              it from Backups.
             </p>
           </div>
           <DialogFooter>

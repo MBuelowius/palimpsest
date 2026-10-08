@@ -5,6 +5,8 @@ import { spawn } from "node:child_process";
 import { SkillLibrary, type Tool } from "./library.ts";
 import { createServer } from "./http.ts";
 
+import { Marketplaces } from "./marketplaces.ts";
+
 const args = process.argv.slice(2);
 function option(flag: string) {
   const index = args.indexOf(flag);
@@ -28,6 +30,12 @@ skill-library share <name> --source <id>   Preview sharing; add --apply to commi
 skill-library share-identical             Preview identical packages; add --apply
 skill-library enable <name> <claude|codex>
 skill-library disable <name> <claude|codex>
+skill-library marketplace list           List marketplace sources
+skill-library marketplace add <repo>     Add a public GitHub source
+skill-library marketplace browse <id>    List skills in a source
+skill-library marketplace inspect <id> <skill-id>
+skill-library marketplace install <id> <skill-id> [--apply]
+skill-library marketplace remove <id>    Unregister a source
 skill-library history                     List backups and operations
 skill-library restore <operation-id>      Restore the latest operation
 
@@ -45,6 +53,32 @@ async function main() {
   if (args.includes("--help") || command === "help") {
     process.stdout.write(help);
     return;
+  }
+  if (command === "marketplace") {
+    const marketplaces = new Marketplaces(library),
+      action = args[1],
+      id = args[2],
+      skillId = args[3];
+    if (action === "list") return print(marketplaces.list());
+    if (!id) throw new Error("Provide a repository or source ID.");
+    if (action === "add") return print(await marketplaces.add(id));
+    if (action === "browse") return print(marketplaces.catalogue(id));
+    if (action === "remove") {
+      marketplaces.remove(id);
+      return print({ removed: id });
+    }
+    if (!skillId)
+      throw new Error("Provide a skill ID from marketplace browse.");
+    if (action === "inspect") return print(marketplaces.preview(id, skillId));
+    if (action === "install") {
+      const preview = marketplaces.preview(id, skillId);
+      return print(
+        args.includes("--apply")
+          ? marketplaces.install(id, skillId, preview.hash, tools)
+          : { preview, tools, apply: false },
+      );
+    }
+    throw new Error("Unknown marketplace command.");
   }
   if (command === "stop") {
     const port = Number(option("--port") ?? 4319);

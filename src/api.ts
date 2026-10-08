@@ -1,3 +1,10 @@
+import type {
+  Marketplace,
+  CatalogueSkill,
+  Marketplaces,
+} from "../server/marketplaces";
+export type MarketplacePreview = ReturnType<Marketplaces["preview"]>;
+export type { Marketplace, CatalogueSkill };
 import type { Skill, SkillLibrary, Tool, Operation } from "../server/library";
 export type Inventory = ReturnType<SkillLibrary["inventory"]>;
 export type Detail = ReturnType<SkillLibrary["detail"]>;
@@ -37,6 +44,23 @@ async function request<T>(
 }
 const skillUrl = (name: string) => "/api/skills/" + encodeURIComponent(name);
 export const api = {
+  marketplaces: () => request<Marketplace[]>("/api/marketplaces"),
+  addMarketplace: (url: string) =>
+    request<Marketplace>("/api/marketplaces", "POST", { url }),
+  removeMarketplace: (id: string) =>
+    request("/api/marketplaces/" + id, "DELETE"),
+  catalogue: (id: string) =>
+    request<CatalogueSkill[]>("/api/marketplaces/" + id),
+  marketplacePreview: (id: string, skillId: string) =>
+    request<MarketplacePreview>(
+      "/api/marketplaces/" + id + "/skills/" + skillId,
+    ),
+  installMarketplaceSkill: (preview: MarketplacePreview, tools: Tool[]) =>
+    request(
+      "/api/marketplaces/" + preview.source.id + "/skills/" + preview.id,
+      "POST",
+      { hash: preview.hash, tools },
+    ),
   inventory: () => request<InventoryView>("/api/inventory"),
   detail: (name: string) => request<Detail>(skillUrl(name)),
   files: (name: string, source: string) =>

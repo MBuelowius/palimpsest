@@ -4,7 +4,10 @@ import path from "node:path";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { SkillLibrary, LibraryError, type Tool } from "./library.ts";
 
+import { Marketplaces } from "./marketplaces.ts";
+
 export function createServer(library: SkillLibrary, webDir: string) {
+  const marketplaces = new Marketplaces(library);
   const token = randomBytes(32).toString("hex");
   const send = (res: http.ServerResponse, status: number, data: unknown) => {
     res.writeHead(status, {
@@ -107,6 +110,40 @@ export function createServer(library: SkillLibrary, webDir: string) {
             throw new LibraryError("Missing field: " + key);
           return body[key] as string;
         };
+        if (url.pathname === "/api/marketplaces") {
+          if (req.method === "GET") return send(res, 200, marketplaces.list());
+          if (req.method === "POST")
+            return send(res, 201, await marketplaces.add(string("url")));
+        }
+        const marketplaceMatch = url.pathname.match(
+          /^\/api\/marketplaces\/([a-f0-9]{16})(?:\/skills\/([a-f0-9]{16}))?$/,
+        );
+        if (marketplaceMatch) {
+          const [, id, skillId] = marketplaceMatch;
+          if (req.method === "GET")
+            return send(
+              res,
+              200,
+              skillId
+                ? marketplaces.preview(id, skillId)
+                : marketplaces.catalogue(id),
+            );
+          if (req.method === "DELETE" && !skillId) {
+            marketplaces.remove(id);
+            return send(res, 200, { removed: true });
+          }
+          if (req.method === "POST" && skillId)
+            return send(
+              res,
+              201,
+              marketplaces.install(
+                id,
+                skillId,
+                string("hash"),
+                body.tools as Tool[],
+              ),
+            );
+        }
         const match = url.pathname.match(
           /^\/api\/skills\/([^/]+)(?:\/(detail|files|file|plan|share|enabled))?$/,
         );

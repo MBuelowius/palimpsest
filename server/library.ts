@@ -75,7 +75,7 @@ const within = (root: string, p: string) =>
   p === root || p.startsWith(root + path.sep);
 const namePattern = /^[a-z0-9][a-z0-9_-]{0,127}$/;
 
-function metadata(content: string) {
+export function metadata(content: string) {
   const issues: string[] = [];
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   if (!match)
@@ -123,7 +123,7 @@ function metadata(content: string) {
   };
 }
 
-function tree(root: string): {
+export function tree(root: string): {
   hash: string;
   files: string[];
   links: string[];
@@ -741,6 +741,59 @@ export class SkillLibrary {
             path.join(canonical, "SKILL.md"),
             `---\nname: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(description.trim())}\n---\n\n${body.trim()}\n`,
           );
+          for (const target of targets) {
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.symlinkSync(canonical, target, "dir");
+          }
+          const manifest = this.manifest();
+          manifest.skills[name] = { adoptedAt: new Date().toISOString() };
+          this.json(path.join(this.state, "manifest.json"), manifest);
+        },
+      );
+    });
+  }
+  installPackage(name: string, directory: string, hash: string, tools: Tool[]) {
+    return this.lock(() => {
+      if (!namePattern.test(name) || name === "synced")
+        throw new LibraryError("Invalid skill folder name.");
+      this.validateTools(tools);
+      const packageTree = tree(directory);
+      if (packageTree.hash !== hash)
+        throw new LibraryError("The package changed. Preview it again.", 409);
+      if (packageTree.links.length)
+        throw new LibraryError("Packages with symlinks cannot be installed.");
+      const info = metadata(
+        fs.readFileSync(path.join(directory, "SKILL.md"), "utf8"),
+      );
+      if (!info.description)
+        throw new LibraryError("The package needs valid skill metadata.");
+      if (this.inventory().skills.some((s) => s.name === name))
+        throw new LibraryError(
+          "This skill already exists. Existing files were preserved.",
+          409,
+        );
+      const canonical = path.join(this.shared, name);
+      const targets = tools.map((tool) =>
+        path.join(
+          this.roots.find(
+            (r) => r.id === (tool === "codex" ? "agents" : "claude"),
+          )!.path,
+          name,
+        ),
+      );
+      if ([canonical, ...targets].some((p) => present(p)))
+        throw new LibraryError("An existing directory uses this name.", 409);
+      return this.transaction(
+        name,
+        "Install marketplace skill",
+        [canonical, ...targets],
+        () => {
+          fs.mkdirSync(path.dirname(canonical), { recursive: true });
+          fs.cpSync(directory, canonical, {
+            recursive: true,
+            filter: (p) =>
+              !ignored.has(path.basename(p)) && !p.endsWith(".pyc"),
+          });
           for (const target of targets) {
             fs.mkdirSync(path.dirname(target), { recursive: true });
             fs.symlinkSync(canonical, target, "dir");
