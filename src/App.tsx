@@ -1,4 +1,5 @@
 import { MarketplacesPage } from "./Marketplaces";
+import { SetupReview } from "./SetupReview";
 import { SyncSkills } from "./SyncSkills";
 import {
   useEffect,
@@ -118,6 +119,7 @@ function ToolsChoice({
 }
 
 export function App() {
+  const [setupReviewOpen, setSetupReviewOpen] = useState(false);
   const [inventory, setInventory] = useState<InventoryView>(),
     [view, setView] = useState<View>("library");
   const [search, setSearch] = useState(""),
@@ -183,6 +185,7 @@ export function App() {
   const latest = history.find((h) => h.status === "committed")?.id;
   return (
     <div className="app-shell">
+      <SetupReview open={setupReviewOpen} onOpenChange={setSetupReviewOpen} />
       <aside className="sidebar">
         <a
           className="brand"
@@ -249,6 +252,13 @@ export function App() {
           </div>
           <div className="header-actions">
             {view === "library" && <SyncSkills onSynced={changed} />}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSetupReviewOpen(true)}
+            >
+              Review setup
+            </Button>
             <Button
               variant="outline"
               size="sm"
