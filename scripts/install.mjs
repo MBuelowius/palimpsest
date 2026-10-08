@@ -7,7 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const home = os.homedir();
 const target = path.join(home, ".local", "share", "skill-library", "app");
 const bin = path.join(home, ".local", "bin", "skill-library");
-const source = path.join(home, "src", "repos", "mythos");
+const source = path.join(home, "src", "repos", "folio");
 if (!fs.existsSync(path.join(root, "dist", "cli.mjs")))
   throw new Error("Run npm run build before installing.");
 if (fs.existsSync(bin)) {
