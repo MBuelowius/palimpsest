@@ -211,7 +211,7 @@ export class SkillLibrary {
     });
     fs.renameSync(temp, p);
   }
-  inventory() {
+  inventory(onlyName?: string) {
     const map = new Map<string, Variant[]>(),
       scanIssues: string[] = [],
       manifest = this.manifest();
@@ -222,6 +222,7 @@ export class SkillLibrary {
     for (const root of roots) {
       if (!present(root.path)) continue;
       for (const entry of fs.readdirSync(root.path, { withFileTypes: true })) {
+        if (onlyName && entry.name !== onlyName) continue;
         if (
           entry.name.startsWith(".") ||
           entry.name === "synced" ||
@@ -318,7 +319,7 @@ export class SkillLibrary {
   skill(name: string, revision?: string) {
     if (!namePattern.test(name) || name === "synced")
       throw new LibraryError("Invalid skill folder name.");
-    const skill = this.inventory().skills.find((s) => s.name === name);
+    const skill = this.inventory(name).skills.find((s) => s.name === name);
     if (!skill) throw new LibraryError("Skill not found.", 404);
     if (revision && skill.revision !== revision)
       throw new LibraryError(
@@ -381,8 +382,13 @@ export class SkillLibrary {
     revision: string,
     tools: Tool[] = ["claude", "codex"],
   ) {
-    const skill = this.skill(name, revision),
-      chosen = this.variant(skill, source);
+    return this.planSkill(this.skill(name, revision), source, tools);
+  }
+  private planSkill(skill: Skill, source: string, tools: Tool[]) {
+    const { name, revision } = skill;
+    if (!namePattern.test(name) || name === "synced")
+      throw new LibraryError("Invalid skill folder name.");
+    const chosen = this.variant(skill, source);
     this.validateTools(tools);
     if (tree(chosen.realPath).links.length)
       throw new LibraryError(
@@ -843,6 +849,77 @@ export class SkillLibrary {
       this.json(path.join(this.state, "history", id, "operation.json"), record);
       return { restored: id };
     });
+  }
+  syncPlan(tools: Tool[] = ["claude", "codex"]) {
+    this.validateTools(tools);
+    const plans: ReturnType<SkillLibrary["plan"]>[] = [];
+    const skipped: { name: string; reason: string }[] = [];
+    for (const skill of this.inventory().skills) {
+      if (skill.status === "shared") continue;
+      if (skill.status === "conflict") {
+        skipped.push({
+          name: skill.name,
+          reason: "Choose a version before syncing.",
+        });
+        continue;
+      }
+      try {
+        plans.push(this.planSkill(skill, skill.variants[0].id, tools));
+      } catch (error) {
+        if (!(error instanceof LibraryError)) throw error;
+        skipped.push({ name: skill.name, reason: error.message });
+      }
+    }
+    return { tools, plans, skipped };
+  }
+  sync(
+    plans: { name: string; source: string; revision: string }[],
+    tools: Tool[],
+  ) {
+    this.validateTools(tools);
+    if (
+      !Array.isArray(plans) ||
+      !plans.length ||
+      plans.length > 1000 ||
+      plans.some(
+        (p) =>
+          !p ||
+          typeof p.name !== "string" ||
+          typeof p.source !== "string" ||
+          typeof p.revision !== "string",
+      ) ||
+      new Set(plans.map((p) => p.name)).size !== plans.length
+    )
+      throw new LibraryError("Choose skills from the sync preview.");
+    // Validate the whole selection before changing any package.
+    const inventory = new Map(
+      this.inventory().skills.map((skill) => [skill.name, skill]),
+    );
+    for (const plan of plans) {
+      const skill = inventory.get(plan.name);
+      if (!skill || skill.revision !== plan.revision)
+        throw new LibraryError(
+          "This skill changed on disk. Refresh and review the current version.",
+          409,
+        );
+      if (skill.status === "conflict" || skill.status === "shared")
+        throw new LibraryError(
+          "The sync selection changed. Preview it again.",
+          409,
+        );
+      this.planSkill(skill, plan.source, tools);
+    }
+    const synced: string[] = [],
+      failed: { name: string; reason: string }[] = [];
+    for (const plan of plans) {
+      try {
+        this.share(plan.name, plan.source, plan.revision, tools);
+        synced.push(plan.name);
+      } catch (error) {
+        failed.push({ name: plan.name, reason: (error as Error).message });
+      }
+    }
+    return { synced, failed };
   }
   shareIdentical(dryRun = true) {
     const candidates = this.inventory().skills.filter(

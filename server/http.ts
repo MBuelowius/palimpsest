@@ -125,6 +125,22 @@ export function createServer(library: SkillLibrary, webDir: string) {
             reviewing = false;
           }
         }
+        if (url.pathname === "/api/sync/plan" && req.method === "POST")
+          return send(res, 200, library.syncPlan(body.tools as Tool[]));
+        if (url.pathname === "/api/sync" && req.method === "POST")
+          return send(
+            res,
+            200,
+            library.sync(
+              body.plans as Parameters<SkillLibrary["sync"]>[0],
+              body.tools as Tool[],
+            ),
+          );
+        const refreshMatch = url.pathname.match(
+          /^\/api\/marketplaces\/([a-f0-9]{16})\/refresh$/,
+        );
+        if (refreshMatch && req.method === "POST")
+          return send(res, 200, await marketplaces.refresh(refreshMatch[1]));
         if (url.pathname === "/api/marketplaces") {
           if (req.method === "GET") return send(res, 200, marketplaces.list());
           if (req.method === "POST")

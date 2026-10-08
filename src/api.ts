@@ -12,6 +12,7 @@ export type ReviewAgent = ReturnType<typeof installedAgents>[number];
 export type Inventory = ReturnType<SkillLibrary["inventory"]>;
 export type Detail = ReturnType<SkillLibrary["detail"]>;
 export type Plan = ReturnType<SkillLibrary["plan"]>;
+export type SyncPlan = ReturnType<SkillLibrary["syncPlan"]>;
 export type FileContent = ReturnType<SkillLibrary["readFile"]>;
 export type SkillRow = Omit<Skill, "variants"> & {
   variants: Omit<Skill["variants"][number], "content">[];
@@ -50,11 +51,20 @@ export const api = {
   reviewAgents: () => request<ReviewAgent[]>("/api/review/agents"),
   reviewSetup: (agent: Tool) =>
     request<ReviewReport>("/api/review", "POST", { agent }),
+  syncPlan: (tools: Tool[]) =>
+    request<SyncPlan>("/api/sync/plan", "POST", { tools }),
+  sync: (plans: SyncPlan["plans"], tools: Tool[]) =>
+    request<ReturnType<SkillLibrary["sync"]>>("/api/sync", "POST", {
+      plans,
+      tools,
+    }),
   marketplaces: () => request<Marketplace[]>("/api/marketplaces"),
   addMarketplace: (url: string) =>
     request<Marketplace>("/api/marketplaces", "POST", { url }),
   removeMarketplace: (id: string) =>
     request("/api/marketplaces/" + id, "DELETE"),
+  refreshMarketplace: (id: string) =>
+    request<Marketplace>("/api/marketplaces/" + id + "/refresh", "POST", {}),
   catalogue: (id: string) =>
     request<CatalogueSkill[]>("/api/marketplaces/" + id),
   marketplacePreview: (id: string, skillId: string) =>

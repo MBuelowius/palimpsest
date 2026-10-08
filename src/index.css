@@ -779,6 +779,48 @@ h3 {
   border-radius: 6px;
   overflow: hidden;
 }
+.catalogue-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.catalogue-heading {
+  flex-wrap: wrap;
+}
+.sync-dialog {
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+.sync-dialog .form-error {
+  white-space: pre-line;
+}
+.marketplace-add {
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+.marketplace-add [data-slot="dialog-footer"] {
+  margin-top: 20px;
+}
+.sync-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+.sync-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.sync-item span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sync-item small {
+  display: block;
+  color: var(--muted-foreground);
+  margin-top: 4px;
+}
 .marketplace-sources {
   padding: 12px;
   border-right: 1px solid var(--border);
