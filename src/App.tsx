@@ -1,4 +1,5 @@
 import { MarketplacesPage } from "./Marketplaces";
+import { SyncSkills } from "./SyncSkills";
 import {
   useEffect,
   useState,
@@ -270,6 +271,9 @@ export function App() {
             </p>
           </div>
           <div className="header-actions">
+            {(view === "library" || view === "shared" || view === "review") && (
+              <SyncSkills onSynced={changed} />
+            )}
             <Button
               variant="outline"
               size="sm"

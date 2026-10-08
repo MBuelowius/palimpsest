@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
-import { Plus, Search, Loader2, ChevronRight, Store } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Loader2,
+  ChevronRight,
+  Store,
+  RefreshCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -27,6 +35,7 @@ export function MarketplacesPage({
   const [sources, setSources] = useState<Marketplace[]>([]);
   const [selected, setSelected] = useState("");
   const [skills, setSkills] = useState<CatalogueSkill[]>([]);
+  const [catalogueLoading, setCatalogueLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [url, setUrl] = useState("");
@@ -47,6 +56,7 @@ export function MarketplacesPage({
   useEffect(() => {
     let active = true;
     setSkills([]);
+    setCatalogueLoading(!!selected);
     if (selected)
       api
         .catalogue(selected)
@@ -55,6 +65,9 @@ export function MarketplacesPage({
         })
         .catch((e) => {
           if (active) setError(e.message);
+        })
+        .finally(() => {
+          if (active) setCatalogueLoading(false);
         });
     return () => {
       active = false;
@@ -63,14 +76,58 @@ export function MarketplacesPage({
   async function add(value: string) {
     setBusy(true);
     setError("");
+    setMessage("");
+    const entries = [
+      ...new Set(
+        value
+          .split(/[\n,]+/)
+          .map((entry) => entry.trim())
+          .filter(Boolean),
+      ),
+    ];
+    const failed: string[] = [];
+    let lastSource: Marketplace | undefined;
     try {
-      const source = await api.addMarketplace(value);
+      for (const entry of entries) {
+        try {
+          lastSource = await api.addMarketplace(entry);
+        } catch (error) {
+          failed.push(entry);
+          setError((error as Error).message);
+        }
+      }
       setSources(await api.marketplaces());
-      setSelected(source.id);
-      setAddOpen(false);
-      setUrl("");
+      if (lastSource) {
+        setSelected(lastSource.id);
+        setSkills(await api.catalogue(lastSource.id));
+        const ready = entries.length - failed.length;
+        setMessage(
+          `${ready} marketplace ${ready === 1 ? "source" : "sources"} ready.`,
+        );
+      }
+      setUrl(failed.join("\n"));
+      if (!failed.length) setAddOpen(false);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function refreshSource(source: Marketplace) {
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const updated = await api.refreshMarketplace(source.id);
+      setSources(await api.marketplaces());
+      setSkills(await api.catalogue(source.id));
+      setMessage(
+        updated.commit === source.commit
+          ? "This marketplace is up to date."
+          : "Marketplace refreshed. Installed skill files are preserved.",
+      );
+    } catch (error) {
+      setError((error as Error).message);
     } finally {
       setBusy(false);
     }
@@ -132,18 +189,36 @@ export function MarketplacesPage({
             <button
               key={source.id}
               className={selected === source.id ? "source-selected" : ""}
-              onClick={() => setSelected(source.id)}
+              disabled={busy}
+              aria-pressed={selected === source.id}
+              onClick={() => {
+                setSelected(source.id);
+                setError("");
+                setMessage("");
+              }}
             >
               <Store size={16} />
               <span>{source.repo}</span>
             </button>
           ))}
           <h3>Suggested sources</h3>
-          <button disabled={busy} onClick={() => void add("anthropics/skills")}>
+          <button
+            disabled={
+              busy ||
+              sources.some((s) => s.repo.toLowerCase() === "anthropics/skills")
+            }
+            onClick={() => void add("anthropics/skills")}
+          >
             Anthropic skills
             <Plus size={14} />
           </button>
-          <button disabled={busy} onClick={() => void add("openai/skills")}>
+          <button
+            disabled={
+              busy ||
+              sources.some((s) => s.repo.toLowerCase() === "openai/skills")
+            }
+            onClick={() => void add("openai/skills")}
+          >
             OpenAI skills
             <Plus size={14} />
           </button>
@@ -164,23 +239,38 @@ export function MarketplacesPage({
                     {current.commit.slice(0, 7)}
                   </p>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy}
-                  onClick={async () => {
-                    try {
-                      await api.removeMarketplace(current.id);
-                      const list = await api.marketplaces();
-                      setSources(list);
-                      setSelected(list[0]?.id ?? "");
-                    } catch (e) {
-                      setError((e as Error).message);
-                    }
-                  }}
-                >
-                  Remove source
-                </Button>
+                <div className="catalogue-actions">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || catalogueLoading}
+                    onClick={() => void refreshSource(current)}
+                  >
+                    <RefreshCw size={14} className={busy ? "spin" : ""} />
+                    Refresh source
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      setError("");
+                      try {
+                        await api.removeMarketplace(current.id);
+                        const list = await api.marketplaces();
+                        setSources(list);
+                        setSelected(list[0]?.id ?? "");
+                      } catch (e) {
+                        setError((e as Error).message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Remove source
+                  </Button>
+                </div>
               </div>
               <div className="search-field">
                 <Search size={16} />
@@ -195,6 +285,7 @@ export function MarketplacesPage({
                 {filtered.map((skill) => (
                   <button
                     key={skill.id}
+                    disabled={busy}
                     onClick={async () => {
                       setError("");
                       try {
@@ -216,7 +307,11 @@ export function MarketplacesPage({
                   </button>
                 ))}
                 {!filtered.length && (
-                  <p className="empty">No matching skills.</p>
+                  <p className="empty" role="status">
+                    {catalogueLoading
+                      ? "Loading skills…"
+                      : "No matching skills."}
+                  </p>
                 )}
               </div>
             </>
@@ -236,13 +331,13 @@ export function MarketplacesPage({
           if (!busy) setAddOpen(open);
         }}
       >
-        <DialogContent>
+        <DialogContent className="marketplace-add">
           <DialogHeader>
             <DialogTitle>Add marketplace</DialogTitle>
             <DialogDescription>
-              Paste a public GitHub repository URL. Repositories containing
-              SKILL.md packages are supported, including skill folders in plugin
-              marketplaces.
+              Paste public GitHub repository URLs or owner/repository names, one
+              per line. Repositories containing SKILL.md packages are supported,
+              including skill folders in plugin marketplaces.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -252,16 +347,22 @@ export function MarketplacesPage({
             }}
           >
             <label className="field-label" htmlFor="marketplace-url">
-              Repository URL
+              Repositories
             </label>
-            <Input
+            <Textarea
               id="marketplace-url"
+              aria-label="Marketplace repositories"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://github.com/owner/repository"
+              placeholder={"https://github.com/owner/repository\nopenai/skills"}
+              rows={4}
               required
               disabled={busy}
             />
+            <p className="field-hint">
+              One repository per line. Successful entries are saved; failed
+              entries stay here for correction.
+            </p>
             {error && (
               <p className="form-error" role="alert">
                 {error}
