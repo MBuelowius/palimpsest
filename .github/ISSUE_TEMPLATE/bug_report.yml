@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible problem in Palimpsest.
+body:
+  - type: markdown
+    attributes:
+      value: "For vulnerabilities, use the private reporting link in SECURITY.md. Remove personal paths, skill content, and credentials from reports."
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Node.js version, and Palimpsest commit.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Use a disposable home and a minimal example skill where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include redacted errors or screenshots if useful.
+    validations:
+      required: true

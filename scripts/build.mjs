@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { chmodSync } from "node:fs";
+import { chmodSync, copyFileSync } from "node:fs";
 await build({
   entryPoints: ["server/cli.ts"],
   bundle: true,
@@ -11,3 +11,4 @@ await build({
   },
 });
 chmodSync("dist/cli.mjs", 0o755);
+copyFileSync("LICENSE", "dist/LICENSE");
