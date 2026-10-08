@@ -58,8 +58,7 @@ import {
 } from "../server/harnesses";
 import { cn } from "@/lib/utils";
 
-type View =
-  "library" | "review" | "shared" | "history" | "settings" | "marketplaces";
+type View = "library" | "history" | "settings" | "marketplaces";
 const statusLabel: Record<string, string> = {
   local: "Local copy",
   identical: "Ready to share",
@@ -158,26 +157,25 @@ export function App() {
   const skills =
     inventory?.skills.filter((skill) => {
       if (
-        view === "review" &&
+        statusFilter === "review" &&
         skill.status !== "conflict" &&
         !skill.issues.length
       )
         return false;
-      if (view === "shared" && skill.status !== "shared") return false;
       if (toolFilter !== "all" && !skill.tools.includes(toolFilter as Tool))
         return false;
-      if (statusFilter !== "all" && skill.status !== statusFilter) return false;
+      if (
+        statusFilter !== "all" &&
+        statusFilter !== "review" &&
+        skill.status !== statusFilter
+      )
+        return false;
       return `${skill.name} ${skill.description}`
         .toLowerCase()
         .includes(search.toLowerCase());
     }) ?? [];
-  const reviewCount =
-    inventory?.skills.filter((s) => s.status === "conflict" || s.issues.length)
-      .length ?? 0;
   const title = {
     library: "Your skills",
-    review: "Needs review",
-    shared: "Shared skills",
     history: "Backups",
     settings: "Harnesses & locations",
     marketplaces: "Marketplaces",
@@ -197,39 +195,15 @@ export function App() {
           <span>Palimpsest</span>
         </a>
         <nav aria-label="Library navigation">
-          {(
-            [
-              {
-                id: "library",
-                label: "All skills",
-                icon: Folder,
-                count: inventory?.counts.total,
-              },
-              {
-                id: "review",
-                label: "Needs review",
-                icon: AlertCircle,
-                count: reviewCount,
-              },
-              {
-                id: "shared",
-                label: "Shared",
-                icon: Link2,
-                count: inventory?.counts.shared,
-              },
-            ] as const
-          ).map((item) => (
-            <button
-              key={item.id}
-              className={cn("nav-item", view === item.id && "nav-active")}
-              onClick={() => setView(item.id)}
-              aria-current={view === item.id ? "page" : undefined}
-            >
-              <item.icon size={17} />
-              <span>{item.label}</span>
-              <span className="nav-count">{item.count ?? "—"}</span>
-            </button>
-          ))}
+          <button
+            className={cn("nav-item", view === "library" && "nav-active")}
+            onClick={() => setView("library")}
+            aria-current={view === "library" ? "page" : undefined}
+          >
+            <Folder size={17} />
+            <span>Skills</span>
+            <span className="nav-count">{inventory?.counts.total ?? "—"}</span>
+          </button>
           <button
             className={cn("nav-item", view === "marketplaces" && "nav-active")}
             onClick={() => setView("marketplaces")}
@@ -274,9 +248,7 @@ export function App() {
             </p>
           </div>
           <div className="header-actions">
-            {(view === "library" || view === "shared" || view === "review") && (
-              <SyncSkills onSynced={changed} />
-            )}
+            {view === "library" && <SyncSkills onSynced={changed} />}
             <Button
               variant="outline"
               size="sm"
@@ -321,117 +293,116 @@ export function App() {
             </Button>
           </div>
         )}
-        {view !== "history" &&
-          view !== "settings" &&
-          view !== "marketplaces" && (
-            <>
-              <div className="toolbar">
-                <div className="search-field">
-                  <Search size={17} />
-                  <Input
-                    aria-label="Search skills"
-                    placeholder="Search skills or descriptions…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                </div>
-                <select
-                  aria-label="Filter by harness"
-                  value={toolFilter}
-                  onChange={(e) => setToolFilter(e.target.value)}
-                >
-                  <option value="all">All harnesses</option>
-                  {harnesses.map((harness) => (
-                    <option key={harness.id} value={harness.id}>
-                      {harness.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  aria-label="Filter by sharing status"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  <option value="all">All statuses</option>
-                  {Object.entries(statusLabel).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-                <span className="result-count">{skills.length} skills</span>
+        {view === "library" && (
+          <>
+            <div className="toolbar">
+              <div className="search-field">
+                <Search size={17} />
+                <Input
+                  aria-label="Search skills"
+                  placeholder="Search skills or descriptions…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
               </div>
-              <section className="skill-table" aria-label="Skills">
-                <div className="table-heading">
-                  <span>Skill</span>
-                  <span>Harness folders</span>
-                  <span>Status</span>
-                  <span />
-                </div>
-                {loading && !inventory ? (
-                  <Empty>Reading your skill folders…</Empty>
-                ) : !skills.length ? (
-                  <Empty>
-                    {search
-                      ? "No skills match this search."
-                      : "No skills in this view."}
-                  </Empty>
-                ) : (
-                  skills.map((skill) => (
-                    <button
-                      className="skill-row"
-                      key={skill.name}
-                      onClick={() => setSelected(skill.name)}
-                      aria-label={`Open ${skill.name}`}
-                    >
-                      <span className="skill-name">
-                        <span>
-                          <strong>{skill.name}</strong>
-                          <small>
-                            {skill.description ||
-                              "No description. Open to review the metadata."}
-                          </small>
-                        </span>
-                      </span>
-                      <span className="harness-tags">
-                        {skill.tools.length ? (
-                          skill.tools.map((tool) => (
-                            <span key={tool} className="harness-tag">
-                              {toolLabel[tool]}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="muted">Library only</span>
-                        )}
-                      </span>
-                      <Status status={skill.status} />
-                      <ChevronRight size={16} className="row-arrow" />
-                    </button>
-                  ))
-                )}
-              </section>
-              <div className="table-footnote">
-                <Terminal size={14} />
-                <span>
-                  Personal skill folders only. App-managed plugins, synced
-                  skills, system skills, and trash stay with their apps.
-                </span>
+              <select
+                aria-label="Filter by harness"
+                value={toolFilter}
+                onChange={(e) => setToolFilter(e.target.value)}
+              >
+                <option value="all">All harnesses</option>
+                {harnesses.map((harness) => (
+                  <option key={harness.id} value={harness.id}>
+                    {harness.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Filter skills"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="all">All skills</option>
+                <option value="review">Needs review</option>
+                {Object.entries(statusLabel).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <span className="result-count">{skills.length} skills</span>
+            </div>
+            <section className="skill-table" aria-label="Skills">
+              <div className="table-heading">
+                <span>Skill</span>
+                <span>Harness folders</span>
+                <span>Status</span>
+                <span />
               </div>
-              {!!inventory?.scanIssues.length && (
-                <div className="message error">
-                  <AlertCircle size={16} />
-                  <details>
-                    <summary>
-                      {inventory.scanIssues.length} folders could not be read
-                    </summary>
-                    {inventory.scanIssues.map((issue) => (
-                      <p key={issue}>{shorten(issue)}</p>
-                    ))}
-                  </details>
-                </div>
+              {loading && !inventory ? (
+                <Empty>Reading your skill folders…</Empty>
+              ) : !skills.length ? (
+                <Empty>
+                  {search
+                    ? "No skills match this search."
+                    : "No skills match these filters."}
+                </Empty>
+              ) : (
+                skills.map((skill) => (
+                  <button
+                    className="skill-row"
+                    key={skill.name}
+                    onClick={() => setSelected(skill.name)}
+                    aria-label={`Open ${skill.name}`}
+                  >
+                    <span className="skill-name">
+                      <span>
+                        <strong>{skill.name}</strong>
+                        <small>
+                          {skill.description ||
+                            "No description. Open to review the metadata."}
+                        </small>
+                      </span>
+                    </span>
+                    <span className="harness-tags">
+                      {skill.tools.length ? (
+                        skill.tools.map((tool) => (
+                          <span key={tool} className="harness-tag">
+                            {toolLabel[tool]}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="muted">Library only</span>
+                      )}
+                    </span>
+                    <Status status={skill.status} />
+                    <ChevronRight size={16} className="row-arrow" />
+                  </button>
+                ))
               )}
-            </>
-          )}
+            </section>
+            <div className="table-footnote">
+              <Terminal size={14} />
+              <span>
+                Personal skill folders only. App-managed plugins, synced skills,
+                system skills, and trash stay with their apps.
+              </span>
+            </div>
+            {!!inventory?.scanIssues.length && (
+              <div className="message error">
+                <AlertCircle size={16} />
+                <details>
+                  <summary>
+                    {inventory.scanIssues.length} folders could not be read
+                  </summary>
+                  {inventory.scanIssues.map((issue) => (
+                    <p key={issue}>{shorten(issue)}</p>
+                  ))}
+                </details>
+              </div>
+            )}
+          </>
+        )}
         {view === "marketplaces" && <MarketplacesPage onInstalled={refresh} />}
         {view === "history" && (
           <section className="history-list">
