@@ -1093,3 +1093,29 @@ h3 {
     transition: none !important;
   }
 }
+
+.setup-review-dialog {
+  width: min(860px, calc(100vw - 32px)) !important;
+  max-width: 860px !important;
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+}
+.setup-review-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+}
+.setup-review-controls .field-hint {
+  flex: 1;
+}
+.setup-review-report {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.7;
+}
