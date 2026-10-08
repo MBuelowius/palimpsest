@@ -17,6 +17,7 @@ export type Marketplace = {
   url: string;
   commit: string;
   addedAt: string;
+  refreshedAt?: string;
 };
 export type CatalogueSkill = {
   id: string;
@@ -40,9 +41,46 @@ export function githubRepository(input: string) {
     );
   return match[1] + "/" + match[2];
 }
+async function cloneRepository(repo: string, directory: string) {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of Object.keys(env))
+    if (key.startsWith("GIT_")) delete env[key];
+  Object.assign(env, {
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_LFS_SKIP_SMUDGE: "1",
+  });
+  await run(
+    "git",
+    [
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "core.fsmonitor=false",
+      "clone",
+      "--depth",
+      "1",
+      "--no-recurse-submodules",
+      "--template=",
+      "--",
+      "https://github.com/" + repo + ".git",
+      directory,
+    ],
+    { env, timeout: 60000, maxBuffer: 1024 * 1024 },
+  );
+  const { stdout } = await run("git", ["-C", directory, "rev-parse", "HEAD"], {
+    env,
+    timeout: 5000,
+  });
+  return stdout.trim();
+}
 export class Marketplaces {
   readonly root: string;
-  constructor(readonly library: SkillLibrary) {
+  constructor(
+    readonly library: SkillLibrary,
+    private readonly clone = cloneRepository,
+  ) {
     this.root = path.join(library.state, "marketplaces");
   }
   list(): Marketplace[] {
@@ -61,68 +99,65 @@ export class Marketplaces {
     return source;
   }
   async add(input: string) {
+    return this.download(input);
+  }
+  async refresh(id: string) {
+    return this.download(this.source(id).repo, true);
+  }
+  private async download(input: string, refresh = false) {
     const repo = githubRepository(input),
       id = createHash("sha256")
         .update(repo.toLowerCase())
         .digest("hex")
         .slice(0, 16);
     const existing = this.list().find((s) => s.id === id);
-    if (existing) return existing;
+    if (existing && !refresh) return existing;
     fs.mkdirSync(this.root, { recursive: true });
     const directory = path.join(this.root, id + "-" + randomUUID());
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    for (const key of Object.keys(env))
-      if (key.startsWith("GIT_")) delete env[key];
-    Object.assign(env, {
-      GIT_TERMINAL_PROMPT: "0",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_LFS_SKIP_SMUDGE: "1",
-    });
     try {
-      await run(
-        "git",
-        [
-          "-c",
-          "core.hooksPath=/dev/null",
-          "-c",
-          "core.fsmonitor=false",
-          "clone",
-          "--depth",
-          "1",
-          "--no-recurse-submodules",
-          "--template=",
-          "--",
-          "https://github.com/" + repo + ".git",
-          directory,
-        ],
-        { env, timeout: 60000, maxBuffer: 1024 * 1024 },
-      );
-      const { stdout } = await run(
-        "git",
-        ["-C", directory, "rev-parse", "HEAD"],
-        { env, timeout: 5000 },
-      );
+      const commit = await this.clone(repo, directory);
       const source = {
         id,
         repo,
         url: "https://github.com/" + repo,
-        commit: stdout.trim(),
-        addedAt: new Date().toISOString(),
+        commit,
+        addedAt: existing?.addedAt ?? new Date().toISOString(),
+        refreshedAt: new Date().toISOString(),
       };
       // Another request may have registered this source while the clone was running.
       const sources = this.list(),
         duplicate = sources.find((s) => s.id === id);
-      if (duplicate) return duplicate;
-      if (fs.existsSync(path.join(this.root, id)))
-        fs.renameSync(
-          path.join(this.root, id),
-          path.join(this.root, id + "-archive-" + randomUUID()),
+      if (duplicate && !refresh) return duplicate;
+      if (
+        refresh &&
+        (!duplicate ||
+          duplicate.commit !== existing?.commit ||
+          duplicate.refreshedAt !== existing?.refreshedAt)
+      )
+        throw new LibraryError(
+          "This source changed during refresh. Retry from the marketplace page.",
+          409,
         );
-      fs.renameSync(directory, path.join(this.root, id));
-      this.write([...sources, source]);
+      const target = path.join(this.root, id);
+      const archive = path.join(this.root, id + "-archive-" + randomUUID());
+      const hadSnapshot = fs.existsSync(target);
+      if (hadSnapshot) fs.renameSync(target, archive);
+      try {
+        fs.renameSync(directory, target);
+        this.write(
+          duplicate
+            ? sources.map((s) => (s.id === id ? source : s))
+            : [...sources, source],
+        );
+      } catch (error) {
+        fs.rmSync(target, { recursive: true, force: true });
+        if (hadSnapshot) fs.renameSync(archive, target);
+        throw error;
+      }
+      if (hadSnapshot) fs.rmSync(archive, { recursive: true });
       return source;
     } catch (error) {
+      if (error instanceof LibraryError) throw error;
       throw new LibraryError(
         "Could not download this public GitHub repository: " +
           (error as Error).message.split("\n")[0],

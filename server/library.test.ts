@@ -32,6 +32,96 @@ function fixture(t: { after: (fn: () => void) => void }) {
   return { home, library, put };
 }
 
+test("sync previews local packages and skips conflicts and invalid metadata", (t) => {
+  const { library, put } = fixture(t);
+  put(".claude", "local", undefined, "Reference");
+  put(".claude", "conflict", "A");
+  put(".codex", "conflict", "B");
+  const invalid = put(".claude", "invalid");
+  fs.writeFileSync(path.join(invalid, "SKILL.md"), "No metadata");
+  const preview = library.syncPlan();
+  assert.deepEqual(
+    preview.plans.map((p) => p.name),
+    ["local"],
+  );
+  assert.deepEqual(
+    preview.skipped.map((p) => p.name),
+    ["conflict", "invalid"],
+  );
+  assert.equal(library.history().length, 0);
+  const result = library.sync(preview.plans, preview.tools);
+  assert.deepEqual(result, { synced: ["local"], failed: [] });
+  assert.equal(library.skill("local").status, "shared");
+  assert.equal(
+    fs.readFileSync(
+      path.join(library.shared, "local", "references", "guide.md"),
+      "utf8",
+    ),
+    "Reference",
+  );
+  assert.equal(library.skill("conflict").status, "conflict");
+  assert.equal(library.syncPlan().plans.length, 0);
+  library.restore(library.history()[0].id);
+  assert.equal(library.skill("local").status, "local");
+});
+
+test("sync rejects stale selections before changing any skill", (t) => {
+  const { library, put } = fixture(t);
+  const a = put(".claude", "a");
+  put(".claude", "b");
+  const preview = library.syncPlan();
+  fs.appendFileSync(path.join(a, "SKILL.md"), "Changed externally");
+  assert.throws(() => library.sync(preview.plans, preview.tools), /changed/);
+  assert.equal(library.skill("b").status, "local");
+  assert.equal(library.history().length, 0);
+  assert.throws(() => library.sync([], preview.tools), /Choose skills/);
+  const current = library.syncPlan();
+  assert.throws(
+    () => library.sync([current.plans[0], current.plans[0]], current.tools),
+    /Choose skills/,
+  );
+});
+
+test("sync preserves disabled shared apps and unrelated target folders", (t) => {
+  const { library, put, home } = fixture(t);
+  put(".claude", "shared");
+  library.share("shared", "claude", library.skill("shared").revision, [
+    "claude",
+  ]);
+  put(".claude", "occupied");
+  const target = path.join(home, ".agents", "skills", "occupied");
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(target, "keep.txt"), "Personal file");
+  const linked = put(".claude", "linked");
+  fs.symlinkSync(target, path.join(linked, "reference"));
+  const preview = library.syncPlan();
+  assert.equal(preview.plans.length, 0);
+  assert.deepEqual(
+    preview.skipped.map((p) => p.name),
+    ["linked", "occupied"],
+  );
+  assert.deepEqual(library.skill("shared").tools, ["claude"]);
+  assert.equal(
+    fs.readFileSync(path.join(target, "keep.txt"), "utf8"),
+    "Personal file",
+  );
+});
+
+test("sync applies only selected packages and records recoverable backups", (t) => {
+  const { library, put } = fixture(t);
+  put(".claude", "a");
+  put(".claude", "b");
+  const preview = library.syncPlan(["codex"]);
+  assert.deepEqual(library.sync([preview.plans[0]], preview.tools).synced, [
+    "a",
+  ]);
+  assert.equal(library.skill("b").status, "local");
+  const operations = library.history();
+  assert.equal(operations.length, 1);
+  library.restore(operations[0].id);
+  assert.deepEqual(library.skill("a").tools, ["claude"]);
+});
+
 test("full-package differences are conflicts even with identical SKILL.md", (t) => {
   const { library, put } = fixture(t);
   put(".claude", "example", undefined, "A");
