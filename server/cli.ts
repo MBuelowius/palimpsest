@@ -28,8 +28,8 @@ palimpsest list [--json]               List personal and shared skills
 palimpsest inspect <name>              Read versions, issues, and diffs
 palimpsest share <name> --source <id>   Preview sharing; add --apply to commit
 palimpsest share-identical             Preview identical packages; add --apply
-palimpsest enable <name> <claude|codex>
-palimpsest disable <name> <claude|codex>
+palimpsest enable <name> <harness>
+palimpsest disable <name> <harness>
 palimpsest marketplace list           List marketplace sources
 palimpsest marketplace add <repo>     Add a public GitHub source
 palimpsest marketplace browse <id>    List skills in a source
@@ -40,7 +40,8 @@ palimpsest history                     List backups and operations
 palimpsest restore <operation-id>      Restore the latest operation
 
 Options: --home <directory> (isolated library), --tools claude,codex
-Sources: claude, codex, agents, shared. No skill scripts are executed.
+Harnesses: claude, codex, cursor, gemini, copilot, opencode
+Sources: claude, codex, agents, cursor, gemini, copilot, opencode, shared. No skill scripts are executed.
 `;
 
 async function main() {
@@ -241,7 +242,7 @@ async function main() {
   if (command === "share") {
     const source = option("--source");
     if (!source)
-      throw new Error("Choose --source claude, codex, agents, or shared.");
+      throw new Error("Choose --source from the locations shown by inspect.");
     print(
       args.includes("--apply")
         ? library.share(name, source, skill.revision, tools)

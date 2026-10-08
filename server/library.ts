@@ -5,7 +5,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { parseDocument } from "yaml";
 import { createTwoFilesPatch } from "diff";
 
-export type Tool = "claude" | "codex";
+import { harnesses, toolLabel, type Tool } from "./harnesses.ts";
+export type { Tool } from "./harnesses.ts";
 export type Variant = {
   id: string;
   tool: Tool | "shared";
@@ -180,20 +181,15 @@ export class SkillLibrary {
       "state",
     );
     this.roots = [
-      {
-        id: "claude",
-        tool: "claude",
-        path: path.join(this.home, ".claude", "skills"),
-      },
+      ...harnesses.map((harness) => ({
+        id: harness.root,
+        tool: harness.id,
+        path: path.join(this.home, harness.directory),
+      })),
       {
         id: "codex",
         tool: "codex",
         path: path.join(this.home, ".codex", "skills"),
-      },
-      {
-        id: "agents",
-        tool: "codex",
-        path: path.join(this.home, ".agents", "skills"),
       },
     ];
   }
@@ -397,8 +393,10 @@ export class SkillLibrary {
       throw new LibraryError(
         "Fix the selected version’s YAML frontmatter and description before sharing.",
       );
-    if (tools.includes("codex") && !meta.title)
-      throw new LibraryError("Add a name field before sharing with Codex.");
+    if (tools.some((tool) => tool !== "claude") && !meta.title)
+      throw new LibraryError(
+        "Add a name field before sharing with the selected harnesses.",
+      );
     const canonical = path.join(this.shared, name);
     if (present(canonical) && fs.lstatSync(canonical).isSymbolicLink())
       throw new LibraryError(
@@ -413,14 +411,7 @@ export class SkillLibrary {
       const existing = skill.variants.filter((v) => v.tool === tool);
       return existing.length
         ? existing.map((v) => v.path)
-        : [
-            path.join(
-              this.roots.find(
-                (r) => r.id === (tool === "codex" ? "agents" : "claude"),
-              )!.path,
-              name,
-            ),
-          ];
+        : [path.join(this.roots.find((r) => r.tool === tool)!.path, name)];
     });
     if (
       targets.some(
@@ -451,10 +442,10 @@ export class SkillLibrary {
     if (
       !Array.isArray(tools) ||
       !tools.length ||
-      tools.some((t) => t !== "claude" && t !== "codex") ||
+      tools.some((t) => !harnesses.some((harness) => harness.id === t)) ||
       new Set(tools).size !== tools.length
     )
-      throw new LibraryError("Choose Claude, Codex, or both.");
+      throw new LibraryError("Choose at least one supported harness.");
   }
   private lock<T>(run: () => T): T {
     fs.mkdirSync(this.state, { recursive: true, mode: 0o700 });
@@ -549,8 +540,7 @@ export class SkillLibrary {
       const chosen = this.variant(this.skill(name, revision), source);
       return this.transaction(
         name,
-        "Share with " +
-          tools.map((t) => (t === "claude" ? "Claude" : "Codex")).join(" and "),
+        "Share with " + tools.map((t) => toolLabel[t]).join(" and "),
         [plan.canonical, ...plan.targets],
         () => {
           if (chosen.realPath !== plan.canonical) {
@@ -605,14 +595,7 @@ export class SkillLibrary {
         );
       const targets = bindings.length
         ? bindings.map((v) => v.path)
-        : [
-            path.join(
-              this.roots.find(
-                (r) => r.id === (tool === "codex" ? "agents" : "claude"),
-              )!.path,
-              name,
-            ),
-          ];
+        : [path.join(this.roots.find((r) => r.tool === tool)!.path, name)];
       if (!bindings.length && targets.some((target) => present(target)))
         throw new LibraryError(
           "An unrelated folder occupies this app location. It has been left untouched.",
@@ -722,12 +705,7 @@ export class SkillLibrary {
         );
       const canonical = path.join(this.shared, name),
         targets = tools.map((tool) =>
-          path.join(
-            this.roots.find(
-              (r) => r.id === (tool === "codex" ? "agents" : "claude"),
-            )!.path,
-            name,
-          ),
+          path.join(this.roots.find((r) => r.tool === tool)!.path, name),
         );
       if ([canonical, ...targets].some((p) => present(p)))
         throw new LibraryError("An existing directory uses this name.", 409);
@@ -774,12 +752,7 @@ export class SkillLibrary {
         );
       const canonical = path.join(this.shared, name);
       const targets = tools.map((tool) =>
-        path.join(
-          this.roots.find(
-            (r) => r.id === (tool === "codex" ? "agents" : "claude"),
-          )!.path,
-          name,
-        ),
+        path.join(this.roots.find((r) => r.tool === tool)!.path, name),
       );
       if ([canonical, ...targets].some((p) => present(p)))
         throw new LibraryError("An existing directory uses this name.", 409);

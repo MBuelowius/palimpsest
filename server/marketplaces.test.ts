@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { harnesses } from "./harnesses.ts";
 import { SkillLibrary } from "./library.ts";
 import { Marketplaces, githubRepository } from "./marketplaces.ts";
 
@@ -50,16 +51,24 @@ test("GitHub sources reject arbitrary hosts and arguments", () => {
   ])
     assert.throws(() => githubRepository(value));
 });
-test("marketplace install copies references, links both apps, and restores", () => {
+test("marketplace install copies references, links all harnesses, and restores", () => {
   const f = fixture();
   try {
     const skills = f.marketplaces.catalogue(f.id);
     assert.equal(skills.length, 1);
     const preview = f.marketplaces.preview(f.id, skills[0].id);
-    const operation = f.marketplaces.install(f.id, preview.id, preview.hash, [
-      "claude",
-      "codex",
-    ]);
+    const operation = f.marketplaces.install(
+      f.id,
+      preview.id,
+      preview.hash,
+      harnesses.map((harness) => harness.id),
+    );
+    for (const harness of harnesses) {
+      assert.equal(
+        fs.realpathSync(path.join(f.home, harness.directory, "sample")),
+        path.join(f.library.shared, "sample"),
+      );
+    }
     assert.equal(
       fs.readFileSync(
         path.join(f.library.shared, "sample", "references", "example.txt"),
