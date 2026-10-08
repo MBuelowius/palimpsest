@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const home = os.homedir();
 const target = path.join(home, ".local", "share", "skill-library", "app");
-const bin = path.join(home, ".local", "bin", "skill-library");
-const source = path.join(home, "src", "repos", "skillshelf");
+const bin = path.join(home, ".local", "bin", "palimpsest");
+const source = path.join(home, "src", "repos", "palimpsest");
 if (!fs.existsSync(path.join(root, "dist", "cli.mjs")))
   throw new Error("Run npm run build before installing.");
 if (fs.existsSync(bin)) {
@@ -37,5 +37,5 @@ if (!fs.existsSync(source)) {
   });
 }
 process.stdout.write(
-  `Installed: ${bin}\nSource: ${source}\nOpen: skill-library ui\n`,
+  `Installed: ${bin}\nSource: ${source}\nOpen: palimpsest ui\n`,
 );

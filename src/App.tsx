@@ -191,7 +191,7 @@ export function App() {
             setView("library");
           }}
         >
-          <span>Skills</span>
+          <span>Palimpsest</span>
         </a>
         <nav aria-label="Library navigation">
           {(
@@ -500,11 +500,11 @@ export function App() {
             <h2>Command line</h2>
             <p>The CLI uses this same library and backup history.</p>
             <code>
-              skill-library list
+              palimpsest list
               <br />
-              skill-library ui
+              palimpsest ui
               <br />
-              skill-library share-identical
+              palimpsest share-identical
             </code>
             <p className="locations-note">
               Folder availability does not prove an app has loaded a skill.

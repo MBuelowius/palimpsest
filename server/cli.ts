@@ -19,25 +19,25 @@ function option(flag: string) {
 function print(value: unknown) {
   process.stdout.write(JSON.stringify(value, null, 2) + "\n");
 }
-const help = `Skill Library
+const help = `Palimpsest
 
-skill-library ui                         Open the local web UI
-skill-library serve [--port 4319]         Run the server in this terminal
-skill-library stop [--port 4319]          Stop this library’s local server
-skill-library list [--json]               List personal and shared skills
-skill-library inspect <name>              Read versions, issues, and diffs
-skill-library share <name> --source <id>   Preview sharing; add --apply to commit
-skill-library share-identical             Preview identical packages; add --apply
-skill-library enable <name> <claude|codex>
-skill-library disable <name> <claude|codex>
-skill-library marketplace list           List marketplace sources
-skill-library marketplace add <repo>     Add a public GitHub source
-skill-library marketplace browse <id>    List skills in a source
-skill-library marketplace inspect <id> <skill-id>
-skill-library marketplace install <id> <skill-id> [--apply]
-skill-library marketplace remove <id>    Unregister a source
-skill-library history                     List backups and operations
-skill-library restore <operation-id>      Restore the latest operation
+palimpsest ui                         Open the local web UI
+palimpsest serve [--port 4319]         Run the server in this terminal
+palimpsest stop [--port 4319]          Stop this library’s local server
+palimpsest list [--json]               List personal and shared skills
+palimpsest inspect <name>              Read versions, issues, and diffs
+palimpsest share <name> --source <id>   Preview sharing; add --apply to commit
+palimpsest share-identical             Preview identical packages; add --apply
+palimpsest enable <name> <claude|codex>
+palimpsest disable <name> <claude|codex>
+palimpsest marketplace list           List marketplace sources
+palimpsest marketplace add <repo>     Add a public GitHub source
+palimpsest marketplace browse <id>    List skills in a source
+palimpsest marketplace inspect <id> <skill-id>
+palimpsest marketplace install <id> <skill-id> [--apply]
+palimpsest marketplace remove <id>    Unregister a source
+palimpsest history                     List backups and operations
+palimpsest restore <operation-id>      Restore the latest operation
 
 Options: --home <directory> (isolated library), --tools claude,codex
 Sources: claude, codex, agents, shared. No skill scripts are executed.
@@ -85,7 +85,7 @@ async function main() {
     const runtimeFile = path.join(library.state, `server-${port}.json`);
     if (!fs.existsSync(runtimeFile))
       throw new Error(
-        "No server started by Skill Library is recorded on this port.",
+        "No server started by Palimpsest is recorded on this port.",
       );
     const runtime = JSON.parse(fs.readFileSync(runtimeFile, "utf8")) as {
       pid: number;
@@ -100,7 +100,7 @@ async function main() {
       );
     process.kill(runtime.pid, "SIGTERM");
     process.stdout.write(
-      "Skill Library server stopped. Skills and app links are unchanged.\n",
+      "Palimpsest server stopped. Skills and app links are unchanged.\n",
     );
     return;
   }
@@ -164,7 +164,7 @@ async function main() {
       }
       if (process.platform === "darwin" && !args.includes("--no-open"))
         spawn("open", [url], { stdio: "ignore" }).unref();
-      process.stdout.write(`Skill Library: ${url}\n`);
+      process.stdout.write(`Palimpsest: ${url}\n`);
       return;
     }
     const webDir = path.resolve(
@@ -197,7 +197,7 @@ async function main() {
       process.once("SIGTERM", stop);
       process.once("SIGINT", stop);
       process.stdout.write(
-        `Skill Library: http://127.0.0.1:${port}\nLibrary: ${library.shared}\n`,
+        `Palimpsest: http://127.0.0.1:${port}\nLibrary: ${library.shared}\n`,
       );
     });
     return;
@@ -232,9 +232,7 @@ async function main() {
     return;
   }
   if (!name || name.startsWith("--"))
-    throw new Error(
-      "Choose a skill name. Run skill-library --help for commands.",
-    );
+    throw new Error("Choose a skill name. Run palimpsest --help for commands.");
   if (command === "inspect") {
     print(library.detail(name));
     return;
@@ -256,7 +254,7 @@ async function main() {
     print(library.setEnabled(name, tool, command === "enable", skill.revision));
     return;
   }
-  throw new Error("Unknown command. Run skill-library --help.");
+  throw new Error("Unknown command. Run palimpsest --help.");
 }
 main().catch((error) => {
   process.stderr.write((error as Error).message + "\n");

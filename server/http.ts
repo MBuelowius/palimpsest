@@ -39,10 +39,7 @@ export function createServer(library: SkillLibrary, webDir: string) {
         origin !== "http://127.0.0.1:4317" &&
         origin !== "http://localhost:4317"
       )
-        throw new LibraryError(
-          "Open Skill Library from its local address.",
-          403,
-        );
+        throw new LibraryError("Open Palimpsest from its local address.", 403);
       if (url.pathname === "/api/session" && req.method === "GET")
         return send(res, 200, { token });
       if (url.pathname === "/api/runtime" && req.method === "GET")
@@ -55,10 +52,7 @@ export function createServer(library: SkillLibrary, webDir: string) {
             supplied.length !== token.length ||
             !timingSafeEqual(Buffer.from(supplied), Buffer.from(token))
           )
-            throw new LibraryError(
-              "Session expired. Reload Skill Library.",
-              403,
-            );
+            throw new LibraryError("Session expired. Reload Palimpsest.", 403);
           if (req.headers["content-type"] !== "application/json")
             throw new LibraryError("Expected JSON.", 415);
         }
