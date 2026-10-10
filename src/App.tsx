@@ -21,7 +21,6 @@ import {
   Check,
   ChevronRight,
   FileText,
-  Terminal,
   ArrowLeftRight,
   Save,
   Undo2,
@@ -89,12 +88,14 @@ function Empty({ children }: { children: ReactNode }) {
   );
 }
 export function App() {
+  const searchInput = useRef<HTMLInputElement>(null);
+  const selectedButton = useRef<HTMLButtonElement>(null);
   const [setupReviewOpen, setSetupReviewOpen] = useState(false);
   const [inventory, setInventory] = useState<InventoryView>(),
     [view, setView] = useState<View>("library");
   const [search, setSearch] = useState(""),
     [toolFilter, setToolFilter] = useState("all"),
-    [statusFilter, setStatusFilter] = useState("all");
+    [attentionOnly, setAttentionOnly] = useState(false);
   const [selected, setSelected] = useState<string>(),
     [newOpen, setNewOpen] = useState(false);
   const [error, setError] = useState(""),
@@ -128,30 +129,31 @@ export function App() {
   };
   const skills =
     inventory?.skills.filter((skill) => {
-      if (
-        statusFilter === "review" &&
-        skill.status !== "conflict" &&
-        !skill.issues.length
-      )
+      if (attentionOnly && skill.status !== "conflict" && !skill.issues.length)
         return false;
       if (toolFilter !== "all" && !skill.tools.includes(toolFilter as Tool))
         return false;
-      if (
-        statusFilter !== "all" &&
-        statusFilter !== "review" &&
-        skill.status !== statusFilter
-      )
-        return false;
       return `${skill.name} ${skill.description}`
         .toLowerCase()
-        .includes(search.toLowerCase());
+        .includes(search.trim().toLowerCase());
     }) ?? [];
   const title = {
     library: "Your skills",
     history: "Backups",
-    settings: "Harnesses & locations",
+    settings: "Settings",
     marketplaces: "Marketplaces",
   }[view];
+  const reviewCount =
+    inventory?.skills.filter(
+      (skill) => skill.status === "conflict" || skill.issues.length,
+    ).length ?? 0;
+  const filtersActive =
+    search.trim() !== "" || toolFilter !== "all" || attentionOnly;
+  function clearFilters() {
+    setSearch("");
+    setToolFilter("all");
+    setAttentionOnly(false);
+  }
   const latest = history.find((h) => h.status === "committed")?.id;
   return (
     <div className="app-shell">
@@ -180,6 +182,7 @@ export function App() {
           <button
             className={cn("nav-item", view === "marketplaces" && "nav-active")}
             onClick={() => setView("marketplaces")}
+            aria-current={view === "marketplaces" ? "page" : undefined}
           >
             <Store size={17} />
             <span>Marketplaces</span>
@@ -188,6 +191,7 @@ export function App() {
           <button
             className={cn("nav-item", view === "history" && "nav-active")}
             onClick={() => setView("history")}
+            aria-current={view === "history" ? "page" : undefined}
           >
             <HistoryIcon size={17} />
             <span>Backups</span>
@@ -195,9 +199,10 @@ export function App() {
           <button
             className={cn("nav-item", view === "settings" && "nav-active")}
             onClick={() => setView("settings")}
+            aria-current={view === "settings" ? "page" : undefined}
           >
             <Settings2 size={17} />
-            <span>Harnesses</span>
+            <span>Settings</span>
           </button>
         </nav>
       </aside>
@@ -209,41 +214,29 @@ export function App() {
               {view === "history"
                 ? "Every change has a backup. Restore the latest operation first."
                 : view === "settings"
-                  ? "One shared package, linked to the harnesses you choose."
+                  ? "Manage app connections, library maintenance, and storage."
                   : view === "marketplaces"
                     ? "Browse and install skills from GitHub."
-                    : `${inventory?.counts.total ?? 0} skills on this Mac`}
+                    : "Find a skill, read its instructions, or make it your own."}
             </p>
           </div>
           <div className="header-actions">
-            {view === "library" && inventory && (
-              <SyncSkills harnesses={inventory.harnesses} onSynced={changed} />
-            )}
             <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSetupReviewOpen(true)}
-            >
-              Review setup
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="icon"
               onClick={() => void refresh()}
               disabled={loading}
               aria-label="Refresh library"
+              title="Refresh library"
             >
               <RefreshCw size={15} className={loading ? "spin" : ""} />
-              <span className="refresh-label">Refresh</span>
             </Button>
-            <Button
-              size="sm"
-              disabled={!inventory}
-              onClick={() => setNewOpen(true)}
-            >
-              <Plus size={15} />
-              New skill
-            </Button>
+            {view === "library" && (
+              <Button disabled={!inventory} onClick={() => setNewOpen(true)}>
+                <Plus size={15} />
+                New skill
+              </Button>
+            )}
           </div>
         </header>
         {error && (
@@ -276,110 +269,126 @@ export function App() {
         )}
         {view === "library" && (
           <>
-            <div className="toolbar">
+            <div className="toolbar library-toolbar">
               <div className="search-field">
                 <Search size={17} />
                 <Input
+                  ref={searchInput}
                   aria-label="Search skills"
-                  placeholder="Search skills or descriptions…"
+                  placeholder="Search by name or what you want to do…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
               <select
-                aria-label="Filter by harness"
+                aria-label="Filter by app"
                 value={toolFilter}
                 onChange={(e) => setToolFilter(e.target.value)}
               >
-                <option value="all">All harnesses</option>
-                {inventory?.harnesses.map((harness) => (
-                  <option key={harness.id} value={harness.id}>
-                    {harness.name}
-                  </option>
-                ))}
+                <option value="all">All apps</option>
+                {inventory?.harnesses
+                  .filter((harness) =>
+                    inventory.skills.some((skill) =>
+                      skill.tools.includes(harness.id),
+                    ),
+                  )
+                  .map((harness) => (
+                    <option key={harness.id} value={harness.id}>
+                      {harness.name}
+                    </option>
+                  ))}
               </select>
-              <select
-                aria-label="Filter skills"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">All skills</option>
-                <option value="review">Needs review</option>
-                {Object.entries(statusLabel).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              <span className="result-count">{skills.length} skills</span>
+              {reviewCount > 0 && (
+                <Button
+                  variant={attentionOnly ? "secondary" : "outline"}
+                  aria-pressed={attentionOnly}
+                  onClick={() => setAttentionOnly(!attentionOnly)}
+                >
+                  <AlertCircle size={15} />
+                  Needs attention <span>{reviewCount}</span>
+                </Button>
+              )}
+            </div>
+            <div className="library-results">
+              <p className="muted" role="status">
+                {loading && !inventory
+                  ? "Reading your library…"
+                  : `${skills.length} ${skills.length === 1 ? "skill" : "skills"}${filtersActive ? ` of ${inventory?.counts.total ?? 0}` : ""}`}
+              </p>
+              {filtersActive && (
+                <Button variant="ghost" size="sm" onClick={clearFilters}>
+                  <X size={14} /> Clear filters
+                </Button>
+              )}
             </div>
             <section className="skill-table" aria-label="Skills">
-              <div className="table-heading">
+              <div className="table-heading" aria-hidden="true">
                 <span>Skill</span>
-                <span>Harness folders</span>
-                <span>Status</span>
+                <span>In app folders</span>
                 <span />
               </div>
               {loading && !inventory ? (
                 <Empty>Reading your skill folders…</Empty>
               ) : !skills.length ? (
                 <Empty>
-                  {search
-                    ? "No skills match this search."
-                    : "No skills match these filters."}
+                  {inventory?.counts.total === 0
+                    ? "Your library is empty. Create a skill or browse Marketplaces to get started."
+                    : "No skills match. Try another search or clear the filters."}
                 </Empty>
               ) : (
                 skills.map((skill) => (
                   <button
                     className="skill-row"
                     key={skill.name}
-                    onClick={() => setSelected(skill.name)}
-                    aria-label={`Open ${skill.name}`}
+                    onClick={(event) => {
+                      selectedButton.current = event.currentTarget;
+                      setSelected(skill.name);
+                    }}
+                    aria-label={`Open ${skill.name}${skill.status === "conflict" ? ", versions differ" : skill.issues.length ? ", needs attention" : ""}`}
+                    aria-describedby={`skill-description-${skill.name}`}
                   >
                     <span className="skill-name">
                       <span>
                         <strong>{skill.name}</strong>
-                        <small>
-                          {skill.description ||
-                            "No description. Open to review the metadata."}
+                        <small id={`skill-description-${skill.name}`}>
+                          {skill.description || "No description yet."}
                         </small>
+                        {(skill.status === "conflict" ||
+                          skill.issues.length > 0) && (
+                          <span className="skill-attention">
+                            <AlertCircle size={13} />
+                            {skill.status === "conflict"
+                              ? "Versions differ"
+                              : "Needs attention"}
+                          </span>
+                        )}
                       </span>
                     </span>
-                    <span className="harness-tags">
+                    <span className="skill-apps">
                       {skill.tools.length ? (
-                        skill.tools.map((tool) => (
-                          <span key={tool} className="harness-tag">
-                            {toolLabel[tool]}
-                          </span>
-                        ))
+                        skill.tools.map((tool) => toolLabel[tool]).join(", ")
                       ) : (
                         <span className="muted">Library only</span>
                       )}
                     </span>
-                    <Status status={skill.status} />
                     <ChevronRight size={16} className="row-arrow" />
                   </button>
                 ))
               )}
             </section>
-            <div className="table-footnote">
-              <Terminal size={14} />
-              <span>
-                Personal skill folders only. App-managed plugins, synced skills,
-                system skills, and trash stay with their apps.
-              </span>
-            </div>
             {!!inventory?.scanIssues.length && (
-              <div className="message error">
+              <div className="message error" role="status">
                 <AlertCircle size={16} />
-                <details>
-                  <summary>
-                    {inventory.scanIssues.length} folders could not be read
-                  </summary>
-                  {inventory.scanIssues.map((issue) => (
-                    <p key={issue}>{shorten(issue)}</p>
-                  ))}
-                </details>
+                <span>
+                  {inventory.scanIssues.length} folders could not be read.
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setView("settings")}
+                >
+                  View in Settings
+                </Button>
               </div>
             )}
           </>
@@ -428,6 +437,54 @@ export function App() {
         )}
         {view === "settings" && inventory && (
           <section className="locations">
+            <section
+              className="settings-section"
+              aria-labelledby="maintenance-title"
+            >
+              <h2 id="maintenance-title">Library maintenance</h2>
+              <div className="maintenance-row">
+                <div>
+                  <h3>Sync existing skills</h3>
+                  <p>
+                    Bring personal skill copies into one shared library. Review
+                    the changes before applying them.
+                  </p>
+                </div>
+                <SyncSkills
+                  harnesses={inventory.harnesses}
+                  onSynced={changed}
+                />
+              </div>
+              <div className="maintenance-row">
+                <div>
+                  <h3>Review setup</h3>
+                  <p>
+                    Ask an installed agent to inspect your personal skills and
+                    suggest changes.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSetupReviewOpen(true)}
+                >
+                  Review setup
+                </Button>
+              </div>
+            </section>
+            {!!inventory.scanIssues.length && (
+              <section
+                className="settings-section"
+                aria-labelledby="scan-title"
+              >
+                <h2 id="scan-title">Folders that could not be read</h2>
+                {inventory.scanIssues.map((issue) => (
+                  <p className="form-error" key={issue}>
+                    {shorten(issue)}
+                  </p>
+                ))}
+              </section>
+            )}
             <h2>Shared library</h2>
             <p>Edit one package here; enabled apps read the same files.</p>
             <code>{shorten(inventory.shared)}</code>
@@ -478,7 +535,7 @@ export function App() {
                       aria-label={`Browse ${harness.label} skills`}
                       onClick={() => {
                         setToolFilter(harness.id);
-                        setStatusFilter("all");
+                        setAttentionOnly(false);
                         setSearch("");
                         setView("library");
                       }}
@@ -489,6 +546,10 @@ export function App() {
                 );
               })}
             </div>
+            <p className="locations-note">
+              Personal skill folders only. App-managed plugins, synced skills,
+              system skills, and trash stay with their apps.
+            </p>
             <p className="locations-note">
               The common ~/.agents/skills folder is also read by several
               harnesses. Harness folder links do not control those discovery
@@ -525,6 +586,10 @@ export function App() {
           harnesses={inventory.harnesses}
           close={() => setSelected(undefined)}
           changed={changed}
+          restoreFocus={() => {
+            const target = selectedButton.current;
+            (target?.isConnected ? target : searchInput.current)?.focus();
+          }}
         />
       )}
       {inventory && (
@@ -588,13 +653,16 @@ function SkillDialog({
   harnesses,
   close,
   changed,
+  restoreFocus,
 }: {
   name: string;
   harnesses: Harness[];
   close: () => void;
   changed: (message: string) => Promise<void>;
+  restoreFocus: () => void;
 }) {
   const shareButton = useRef<HTMLButtonElement>(null);
+  const settingsTab = useRef<HTMLButtonElement>(null);
   const [detail, setDetail] = useState<Detail>(),
     [tab, setTab] = useState("overview"),
     [source, setSource] = useState("");
@@ -713,6 +781,9 @@ function SkillDialog({
     }
   }
   const chosen = detail?.variants.find((v) => v.id === source);
+  const instructions = chosen?.content
+    .replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "")
+    .trim();
   return (
     <>
       <Dialog
@@ -722,9 +793,16 @@ function SkillDialog({
         }}
       >
         <DialogContent
-          className="skill-dialog"
+          className={cn(
+            "skill-dialog",
+            (tab === "files" || tab === "compare") && "skill-dialog-wide",
+          )}
           onInteractOutside={(event) => {
             if (dirty || busy) event.preventDefault();
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            restoreFocus();
           }}
         >
           <DialogHeader className="detail-header">
@@ -736,12 +814,12 @@ function SkillDialog({
                 <DialogTitle>{name}</DialogTitle>
                 <DialogDescription>
                   {detail
-                    ? `${detail.variants.length} location${detail.variants.length === 1 ? "" : "s"} · ${chosen?.files ?? 0} files in selected version`
+                    ? `${chosen?.files ?? 0} ${(chosen?.files ?? 0) === 1 ? "file" : "files"} · ${sourceLabel[source] ?? "Reading version…"}`
                     : "Reading skill…"}
                 </DialogDescription>
               </div>
             </div>
-            {detail && <Status status={detail.status} />}
+            {detail && tab === "settings" && <Status status={detail.status} />}
           </DialogHeader>
           {error && (
             <div className="message error" role="alert">
@@ -762,14 +840,18 @@ function SkillDialog({
                 <TabsTrigger value="files">
                   Files {dirty && <span className="unsaved-dot" />}
                 </TabsTrigger>
-                <TabsTrigger value="compare">Compare</TabsTrigger>
-                <TabsTrigger value="sharing">Sharing</TabsTrigger>
+                {detail.status === "conflict" && (
+                  <TabsTrigger value="compare">Compare</TabsTrigger>
+                )}
+                <TabsTrigger ref={settingsTab} value="settings">
+                  Settings
+                </TabsTrigger>
               </TabsList>
               <TabsContent value="overview" className="overview-tab">
                 <h3>When to use it</h3>
                 <p className="skill-description">
                   {detail.description ||
-                    "Add a description in SKILL.md so the app knows when to use this skill."}
+                    "This skill needs a description. Add one in Files."}
                 </p>
                 {detail.issues.length > 0 && (
                   <div className="review-notes">
@@ -782,95 +864,47 @@ function SkillDialog({
                     ))}
                   </div>
                 )}
-                <h3>Harness folders</h3>
-                <p className="muted">
-                  {detail.managed
-                    ? "These switches manage links in each harness folder. The shared package is retained when a link is removed."
-                    : "Share this skill to manage its folder links from one place."}
-                </p>
-                <div className="availability">
-                  {harnesses.map(({ id: tool }) => (
-                    <div key={tool}>
-                      <span>
-                        <strong>{toolLabel[tool]}</strong>
-                        <small>
-                          {detail.tools.includes(tool)
-                            ? "Present in folder"
-                            : "Not linked"}
-                        </small>
-                      </span>
-                      <Switch
-                        aria-label={`Link ${name} to ${toolLabel[tool]}`}
-                        checked={detail.tools.includes(tool)}
-                        disabled={
-                          !detail.managed ||
-                          busy ||
-                          detail.status === "conflict"
-                        }
-                        onCheckedChange={(enabled) =>
-                          void run(
-                            () =>
-                              api.enabled(name, tool, enabled, detail.revision),
-                            `${name}: ${toolLabel[tool]} folder link ${enabled ? "added" : "removed"}.`,
-                          )
-                        }
-                      />
-                    </div>
-                  ))}
-                </div>
-                <p className="muted discovery-note">
-                  Harnesses can also discover skills in common folders such as
-                  ~/.agents/skills. Removing a link here does not disable a
-                  skill inside the harness.
-                </p>
-                <h3>Versions on disk</h3>
-                <div className="version-list">
-                  {detail.variants.map((variant) => (
-                    <button
-                      key={variant.id}
-                      className={cn(
-                        "version-row",
-                        source === variant.id && "version-selected",
-                      )}
-                      onClick={() =>
-                        guard(() => {
-                          setSource(variant.id);
-                          setFileName("SKILL.md");
-                        })
-                      }
-                    >
-                      <span className="version-radio">
-                        {source === variant.id && <span />}
-                      </span>
-                      <span>
-                        <strong>
-                          {sourceLabel[variant.id]}{" "}
-                          {variant.version && (
-                            <Badge variant="secondary">
-                              v{variant.version}
-                            </Badge>
-                          )}
-                        </strong>
-                        <code>{shorten(variant.path)}</code>
-                        <small>
-                          {variant.linked ? "Linked folder" : "Folder"} ·{" "}
-                          {variant.files} files · {variant.hash.slice(0, 10)}
-                        </small>
-                      </span>
-                      {source === variant.id && <Check size={16} />}
-                    </button>
-                  ))}
+                <div className="skill-context">
+                  <h3>In app folders</h3>
+                  <p>
+                    {detail.tools.length
+                      ? detail.tools.map((tool) => toolLabel[tool]).join(", ")
+                      : "Library only"}
+                  </p>
                 </div>
                 {detail.status === "conflict" && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setTab("compare")}
-                  >
-                    <ArrowLeftRight size={15} />
-                    Compare before choosing
-                  </Button>
+                  <div className="skill-conflict-note">
+                    <p>
+                      <AlertCircle size={16} /> This skill has different
+                      versions. You’re reading {sourceLabel[source]}.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTab("compare")}
+                    >
+                      <ArrowLeftRight size={15} /> Compare versions
+                    </Button>
+                  </div>
                 )}
+                <section
+                  className="instructions-section"
+                  aria-labelledby="instructions-title"
+                >
+                  <div className="section-heading">
+                    <h3 id="instructions-title">Instructions</h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => guard(() => setTab("files"))}
+                    >
+                      Edit instructions
+                    </Button>
+                  </div>
+                  <pre className="instructions-preview">
+                    {instructions || "This skill has no instructions yet."}
+                  </pre>
+                </section>
               </TabsContent>
               <TabsContent value="files" className="files-tab">
                 <div className="file-toolbar">
@@ -886,11 +920,17 @@ function SkillDialog({
                         })
                       }
                     >
-                      {detail.variants.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {sourceLabel[v.id]}
-                        </option>
-                      ))}
+                      {detail.variants
+                        .filter(
+                          (variant) =>
+                            detail.status !== "shared" ||
+                            variant.tool === "shared",
+                        )
+                        .map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {sourceLabel[v.id]}
+                          </option>
+                        ))}
                     </select>
                   </label>
                   <span>{dirty ? "Unsaved changes" : "Saved on disk"}</span>
@@ -910,7 +950,7 @@ function SkillDialog({
                         const next = await api.file(name, source, fileName);
                         setFile(next);
                         setDraft(next.content);
-                      }, `${fileName} saved. A backup is available in Activity.`)
+                      }, `${fileName} saved. A backup is available in Backups.`)
                     }
                   >
                     <Save size={14} />
@@ -968,6 +1008,8 @@ function SkillDialog({
                     >
                       <button
                         className="compare-heading"
+                        disabled={busy}
+                        aria-pressed={source === variant.id}
                         onClick={() =>
                           guard(() => {
                             setSource(variant.id);
@@ -1047,59 +1089,173 @@ function SkillDialog({
                   </details>
                 )}
               </TabsContent>
-              <TabsContent value="sharing" className="overview-tab">
-                <h3>Choose harness folders</h3>
-                <p className="muted">
-                  Share the {sourceLabel[source]} version with the harnesses
-                  selected below. Review the file changes before applying them.
-                </p>
-                <HarnessChoice
-                  harnesses={harnesses}
-                  tools={tools}
-                  setTools={setTools}
-                  disabled={busy}
-                />
-                <p className="muted discovery-note">
-                  Common folders may be read by other harnesses too. These
-                  choices control where Palimpsest places links.
-                </p>
+              <TabsContent value="settings" className="overview-tab">
+                {detail.status === "shared" ? (
+                  <section
+                    className="shared-package"
+                    aria-labelledby="shared-package-title"
+                  >
+                    <h3 id="shared-package-title">Shared package</h3>
+                    <p className="muted">
+                      All linked apps read these same files.
+                    </p>
+                    <code>
+                      {shorten(
+                        detail.variants.find(
+                          (variant) => variant.tool === "shared",
+                        )!.path,
+                      )}
+                    </code>
+                  </section>
+                ) : (
+                  <>
+                    <h3>Version and location</h3>
+                    <div className="version-list">
+                      {detail.variants.map((variant) => (
+                        <button
+                          key={variant.id}
+                          className={cn(
+                            "version-row",
+                            source === variant.id && "version-selected",
+                          )}
+                          aria-pressed={source === variant.id}
+                          disabled={busy}
+                          onClick={() =>
+                            guard(() => {
+                              setSource(variant.id);
+                              setFileName("SKILL.md");
+                            })
+                          }
+                        >
+                          <span className="version-radio">
+                            {source === variant.id && <span />}
+                          </span>
+                          <span>
+                            <strong>
+                              {sourceLabel[variant.id]}{" "}
+                              {variant.version && (
+                                <Badge variant="secondary">
+                                  v{variant.version}
+                                </Badge>
+                              )}
+                            </strong>
+                            <code>{shorten(variant.path)}</code>
+                            <small>
+                              {variant.linked ? "Linked folder" : "Folder"} ·{" "}
+                              {variant.files} files ·{" "}
+                              {variant.hash.slice(0, 10)}
+                            </small>
+                          </span>
+                          {source === variant.id && <Check size={16} />}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {detail.managed && detail.status === "shared" ? (
+                  <section aria-labelledby="app-links-title">
+                    <h3 id="app-links-title">App links</h3>
+                    <p className="muted">
+                      Choose which app folders link to this shared skill.
+                      Changes apply immediately; the shared package stays in
+                      your library.
+                    </p>
+                    <div className="availability">
+                      {harnesses.map(({ id: tool }) => (
+                        <label key={tool} htmlFor={`skill-link-${tool}`}>
+                          <span>
+                            <strong>{toolLabel[tool]}</strong>
+                            <small>
+                              {detail.tools.includes(tool)
+                                ? "Present in folder"
+                                : "Not linked"}
+                            </small>
+                          </span>
+                          <Switch
+                            id={`skill-link-${tool}`}
+                            aria-label={`Link ${name} to ${toolLabel[tool]}`}
+                            checked={detail.tools.includes(tool)}
+                            disabled={busy}
+                            onCheckedChange={(enabled) =>
+                              void run(
+                                () =>
+                                  api.enabled(
+                                    name,
+                                    tool,
+                                    enabled,
+                                    detail.revision,
+                                  ),
+                                `${name}: ${toolLabel[tool]} folder link ${enabled ? "added" : "removed"}.`,
+                              )
+                            }
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <p className="muted discovery-note">
+                      Harnesses can also discover skills in common folders such
+                      as ~/.agents/skills. Removing a link here does not disable
+                      a skill inside the harness.
+                    </p>
+                  </section>
+                ) : (
+                  <section aria-labelledby="share-title">
+                    <h3 id="share-title">Share this skill</h3>
+                    <p className="muted">
+                      Use the {sourceLabel[source]} version in the apps you
+                      choose. Review the changes before replacing any files.
+                    </p>
+                    <HarnessChoice
+                      harnesses={harnesses}
+                      tools={tools}
+                      setTools={setTools}
+                      disabled={busy}
+                    />
+                    <p className="muted discovery-note">
+                      These choices manage folder links. Apps may also discover
+                      skills in common folders.
+                    </p>
+                  </section>
+                )}
               </TabsContent>
             </Tabs>
           )}
-          {detail && (
-            <div className="detail-footer">
-              <div>
-                <strong>
-                  {detail.status === "shared"
-                    ? "One package, shared files"
-                    : "Share the selected version"}
-                </strong>
-                <small>
-                  {detail.status === "shared"
-                    ? "Edits reach every linked app."
-                    : `Keep ${sourceLabel[source] ?? "the selected version"}; original folders are backed up.`}
-                </small>
+          {detail &&
+            tab === "settings" &&
+            !(detail.managed && detail.status === "shared") && (
+              <div className="detail-footer">
+                <div>
+                  <strong>
+                    {detail.status === "shared"
+                      ? "One package, shared files"
+                      : "Share the selected version"}
+                  </strong>
+                  <small>
+                    {detail.status === "shared"
+                      ? "Edits reach every linked app."
+                      : `Keep ${sourceLabel[source] ?? "the selected version"}; original folders are backed up.`}
+                  </small>
+                </div>
+                <div className="share-controls">
+                  <span className="muted">
+                    {tools.length} {tools.length === 1 ? "app" : "apps"}{" "}
+                    selected
+                  </span>
+                  <Button
+                    ref={shareButton}
+                    disabled={busy || dirty || !tools.length}
+                    onClick={() => void reviewShare()}
+                  >
+                    {busy ? (
+                      <Loader2 size={15} className="spin" />
+                    ) : (
+                      <Link2 size={15} />
+                    )}
+                    Review sharing
+                  </Button>
+                </div>
               </div>
-              <div className="share-controls">
-                <span className="muted">
-                  {tools.length} {tools.length === 1 ? "harness" : "harnesses"}{" "}
-                  selected
-                </span>
-                <Button
-                  ref={shareButton}
-                  disabled={busy || dirty || !tools.length}
-                  onClick={() => void reviewShare()}
-                >
-                  {busy ? (
-                    <Loader2 size={15} className="spin" />
-                  ) : (
-                    <Link2 size={15} />
-                  )}
-                  Review sharing
-                </Button>
-              </div>
-            </div>
-          )}
+            )}
         </DialogContent>
       </Dialog>
       <Dialog
@@ -1111,7 +1267,9 @@ function SkillDialog({
         <DialogContent
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            shareButton.current?.focus();
+            const target = shareButton.current;
+            if (target && !target.disabled) target.focus();
+            else settingsTab.current?.focus();
           }}
         >
           <DialogHeader>

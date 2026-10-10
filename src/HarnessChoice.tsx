@@ -1,5 +1,4 @@
 import { Checkbox } from "@/components/ui/checkbox";
-import { harnesses as supportedHarnesses } from "../shared/harnesses";
 import type { Harness, Tool } from "../server/harnesses";
 
 export function HarnessChoice({
@@ -15,10 +14,16 @@ export function HarnessChoice({
   disabled?: boolean;
   action?: string;
 }) {
+  const visible = harnesses.filter(
+    (harness) => harness.detected || tools.includes(harness.id),
+  );
+  const otherApps = harnesses.filter(
+    (harness) => !harness.detected && !tools.includes(harness.id),
+  );
   return (
     <div>
       <div className="tools-choice">
-        {harnesses.map((harness) => (
+        {visible.map((harness) => (
           <label key={harness.id} className="check-label">
             <Checkbox
               aria-label={`${action} ${harness.name}`}
@@ -34,13 +39,6 @@ export function HarnessChoice({
             />
             <span className="harness-choice-text">
               {harness.name}
-              <small>
-                ~/
-                {
-                  supportedHarnesses.find((item) => item.id === harness.id)!
-                    .directory
-                }
-              </small>
               {!harness.detected && (
                 <small className="harness-undetected">Not detected</small>
               )}
@@ -48,9 +46,31 @@ export function HarnessChoice({
           </label>
         ))}
       </div>
+      {otherApps.length > 0 && (
+        <label className="additional-app">
+          {visible.length ? "Add another app" : "Choose an app"}
+          <select
+            aria-label={`${action} another app`}
+            disabled={disabled}
+            value=""
+            onChange={(event) =>
+              setTools([...tools, event.target.value as Tool])
+            }
+          >
+            <option value="" disabled>
+              Select app…
+            </option>
+            {otherApps.map((harness) => (
+              <option key={harness.id} value={harness.id}>
+                {harness.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {!harnesses.some((harness) => harness.detected) && (
         <p className="field-hint">
-          No harness detected. Select one manually to continue.
+          No app detected. Choose an app to continue.
         </p>
       )}
     </div>

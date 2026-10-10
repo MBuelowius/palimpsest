@@ -19,7 +19,7 @@
   --color-accent-foreground: var(--foreground);
   --color-destructive: var(--foreground);
   --color-border: var(--border);
-  --color-input: var(--border);
+  --color-input: var(--input);
   --color-ring: var(--ring);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -34,10 +34,11 @@
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted-foreground: oklch(0.52 0 0);
   --accent: oklch(0.97 0 0);
   --border: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --input: oklch(0.65 0 0);
+  --ring: oklch(0.45 0 0);
   --radius: 0.625rem;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--foreground);
@@ -64,6 +65,14 @@ button {
 button:disabled {
   cursor: default;
 }
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.skill-row:focus-visible {
+  outline-offset: -3px;
+}
 a {
   color: inherit;
 }
@@ -74,7 +83,7 @@ pre,
 }
 select {
   height: 36px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--input);
   border-radius: 6px;
   background: var(--background);
   padding: 0 28px 0 10px;
@@ -115,6 +124,7 @@ select:focus-visible {
   margin-bottom: 4px;
   text-align: left;
   color: var(--muted-foreground);
+  min-height: 44px;
 }
 .nav-item:hover,
 .nav-active {
@@ -170,6 +180,26 @@ h1 {
 .toolbar {
   margin-bottom: 16px;
 }
+.library-toolbar {
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.library-toolbar .search-field {
+  max-width: none;
+}
+.library-toolbar input,
+.library-toolbar select,
+.library-toolbar > button,
+.header-actions > button {
+  min-height: 40px;
+}
+.library-results {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  margin-bottom: 8px;
+}
 .search-field {
   position: relative;
   display: flex;
@@ -199,7 +229,7 @@ h1 {
 .table-heading,
 .skill-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.7fr) 150px 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 0.4fr) 16px;
   align-items: center;
   gap: 12px;
   padding: 0 16px;
@@ -212,7 +242,9 @@ h1 {
 }
 .skill-row {
   width: 100%;
-  min-height: 64px;
+  min-height: 80px;
+  padding-top: 14px;
+  padding-bottom: 14px;
   text-align: left;
   border-bottom: 1px solid var(--border);
 }
@@ -241,11 +273,27 @@ h1 {
 .skill-name small {
   display: block;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.5;
   margin-top: 4px;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.skill-apps {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.skill-attention {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 12px;
 }
 .app-cell {
   overflow: hidden;
@@ -259,17 +307,6 @@ h1 {
 }
 .status-badge {
   width: fit-content;
-}
-.table-footnote {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  margin-top: 16px;
-}
-.table-footnote svg {
-  flex-shrink: 0;
 }
 .message {
   display: flex;
@@ -329,6 +366,28 @@ h1 {
 .locations {
   max-width: 760px;
 }
+.settings-section {
+  margin-bottom: 28px;
+}
+.maintenance-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+.maintenance-row h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+.maintenance-row p {
+  margin: 0;
+  max-width: 480px;
+}
+.maintenance-row > button {
+  min-height: 40px;
+}
 .locations h2 {
   font-size: 16px;
   font-weight: 600;
@@ -384,14 +443,18 @@ h1 {
   font-size: 11px;
 }
 .skill-dialog {
-  width: min(1100px, calc(100vw - 48px));
-  max-width: 1100px !important;
+  width: min(860px, calc(100vw - 48px));
+  max-width: 860px !important;
   height: min(850px, calc(100dvh - 64px));
   padding: 0 !important;
   gap: 0 !important;
   display: flex !important;
   flex-direction: column;
   overflow: hidden;
+}
+.skill-dialog-wide {
+  width: min(1100px, calc(100vw - 48px));
+  max-width: 1100px !important;
 }
 .detail-header {
   padding: 24px 48px 20px 24px;
@@ -415,6 +478,14 @@ h1 {
 .detail-title p {
   font-size: 12px;
   margin-top: 4px;
+}
+.skill-dialog > [data-slot="dialog-close"] {
+  width: 44px;
+  height: 44px;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
 }
 .skill-dialog > .message {
   margin: 0 24px 12px;
@@ -452,6 +523,60 @@ h3 {
   font-size: 14px;
   line-height: 1.7;
   margin-bottom: 16px;
+  max-width: 72ch;
+}
+.skill-context {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.skill-context p {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  margin: 0;
+}
+.shared-package code {
+  display: block;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  margin: 12px 0 24px;
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.section-heading h3 {
+  margin: 0;
+}
+.instructions-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.8;
+  margin: 0;
+  max-width: 72ch;
+}
+.skill-conflict-note {
+  padding: 12px;
+  background: var(--muted);
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+.skill-conflict-note p {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+.skill-conflict-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 .review-notes {
   padding: 12px;
@@ -476,12 +601,14 @@ h3 {
   background: var(--border);
   margin: 12px 0 24px;
 }
-.availability > div {
+.availability > label {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 16px;
   background: var(--background);
+  cursor: pointer;
+  min-height: 64px;
 }
 .availability strong {
   font-size: 13px;
@@ -939,7 +1066,7 @@ h3 {
 @media (max-width: 1100px) {
   .table-heading,
   .skill-row {
-    grid-template-columns: minmax(0, 1fr) minmax(140px, 0.6fr) 140px 16px;
+    grid-template-columns: minmax(0, 1fr) minmax(120px, 0.35fr) 16px;
     gap: 8px;
   }
   .toolbar {
@@ -987,9 +1114,6 @@ h3 {
     align-items: flex-start;
     flex-wrap: wrap;
   }
-  .refresh-label {
-    display: none;
-  }
   .search-field {
     flex-basis: 100%;
     max-width: none;
@@ -998,18 +1122,41 @@ h3 {
     flex: 1;
     min-width: 0;
   }
+  .library-toolbar input,
+  .library-toolbar select,
+  .library-toolbar > button,
+  .header-actions > button,
+  .library-results > button,
+  .maintenance-row > button,
+  .overview-tab button,
+  .detail-footer button {
+    min-height: 44px;
+  }
+  .header-actions > button {
+    min-width: 44px;
+  }
+  .detail-tabs > [role="tablist"] {
+    height: auto;
+  }
+  .detail-tabs [role="tab"] {
+    min-height: 44px;
+  }
   .table-heading,
   .skill-row {
-    grid-template-columns: minmax(0, 1fr) 130px 12px;
+    grid-template-columns: minmax(0, 1fr) 16px;
     padding: 0 12px;
   }
   .table-heading > span:nth-child(2) {
     display: none;
   }
-  .skill-row .harness-tags {
-    grid-column: 1 / -1;
+  .skill-row .skill-apps {
+    grid-column: 1;
     grid-row: 2;
-    padding-bottom: 12px;
+    font-size: 12px;
+  }
+  .skill-row .row-arrow {
+    grid-column: 2;
+    grid-row: 1 / 3;
   }
   .skill-row {
     padding-top: 12px;
@@ -1018,10 +1165,10 @@ h3 {
     grid-template-columns: 1fr;
   }
   .skill-name strong {
-    font-size: 12px;
+    font-size: 14px;
   }
   .skill-name small {
-    font-size: 11px;
+    font-size: 13px;
   }
   .status-badge {
     font-size: 11px;
@@ -1062,7 +1209,7 @@ h3 {
   .tools-choice {
     gap: 8px;
   }
-  .availability > div {
+  .availability > label {
     padding: 12px;
   }
   .availability small {
@@ -1119,6 +1266,11 @@ h3 {
     align-items: flex-start;
     flex-direction: column;
   }
+  .maintenance-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -1129,19 +1281,6 @@ h3 {
   }
 }
 
-.harness-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  padding: 10px 0;
-}
-.harness-tag {
-  font-size: 11px;
-  padding: 3px 6px;
-  background: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-}
 .tools-choice {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1153,6 +1292,7 @@ h3 {
   border: 1px solid var(--border);
   border-radius: 4px;
   align-items: flex-start;
+  min-height: 44px;
 }
 .tools-choice .check-label:has([data-state="checked"]) {
   background: var(--muted);
@@ -1167,6 +1307,17 @@ h3 {
   font-size: 10px;
   color: var(--muted-foreground);
   overflow-wrap: anywhere;
+}
+.additional-app {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  margin-top: 12px;
+}
+.additional-app select {
+  min-width: 0;
+  min-height: 44px;
 }
 .harness-locations {
   display: grid;
@@ -1205,6 +1356,7 @@ h3 {
   color: var(--foreground);
   margin-top: auto;
   width: fit-content;
+  min-height: 44px;
 }
 .harness-browse:hover {
   text-decoration: underline;
@@ -1227,7 +1379,7 @@ h3 {
   .availability {
     grid-template-columns: 1fr;
   }
-  .availability > div + div {
+  .availability > label + label {
     border-top: 1px solid var(--border);
   }
 }
