@@ -6,7 +6,7 @@ export function HarnessChoice({
   tools,
   setTools,
   disabled = false,
-  action = "Share with",
+  action = "Use in",
 }: {
   harnesses: Harness[];
   tools: Tool[];
@@ -14,16 +14,10 @@ export function HarnessChoice({
   disabled?: boolean;
   action?: string;
 }) {
-  const visible = harnesses.filter(
-    (harness) => harness.detected || tools.includes(harness.id),
-  );
-  const otherApps = harnesses.filter(
-    (harness) => !harness.detected && !tools.includes(harness.id),
-  );
   return (
     <div>
       <div className="tools-choice">
-        {visible.map((harness) => (
+        {harnesses.map((harness) => (
           <label key={harness.id} className="check-label">
             <Checkbox
               aria-label={`${action} ${harness.name}`}
@@ -40,37 +34,16 @@ export function HarnessChoice({
             <span className="harness-choice-text">
               {harness.name}
               {!harness.detected && (
-                <small className="harness-undetected">Not detected</small>
+                <small className="harness-undetected">No setup found</small>
               )}
             </span>
           </label>
         ))}
       </div>
-      {otherApps.length > 0 && (
-        <label className="additional-app">
-          {visible.length ? "Add another app" : "Choose an app"}
-          <select
-            aria-label={`${action} another app`}
-            disabled={disabled}
-            value=""
-            onChange={(event) =>
-              setTools([...tools, event.target.value as Tool])
-            }
-          >
-            <option value="" disabled>
-              Select app…
-            </option>
-            {otherApps.map((harness) => (
-              <option key={harness.id} value={harness.id}>
-                {harness.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
       {!harnesses.some((harness) => harness.detected) && (
         <p className="field-hint">
-          No app detected. Choose an app to continue.
+          Choose the apps you want to use. You can add them before setting them
+          up.
         </p>
       )}
     </div>
