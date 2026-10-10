@@ -1,6 +1,7 @@
 import { MarketplacesPage } from "./Marketplaces";
 import { SetupReview } from "./SetupReview";
 import { SyncSkills } from "./SyncSkills";
+import { SkillEditor } from "./SkillEditor";
 import {
   useEffect,
   useState,
@@ -923,6 +924,7 @@ function SkillDialog({
                       <button
                         key={f}
                         className={cn(fileName === f && "file-selected")}
+                        aria-current={fileName === f ? "page" : undefined}
                         onClick={() => guard(() => setFileName(f))}
                         title={f}
                       >
@@ -939,12 +941,12 @@ function SkillDialog({
                     {fileLoading ? (
                       <Empty>Reading file…</Empty>
                     ) : file ? (
-                      <Textarea
-                        aria-label={`Edit ${fileName}`}
-                        className="code-editor"
+                      <SkillEditor
+                        key={`${source}:${fileName}`}
+                        fileName={fileName}
                         value={draft}
-                        spellCheck={false}
-                        onChange={(e) => setDraft(e.target.value)}
+                        onChange={setDraft}
+                        readOnly={busy}
                       />
                     ) : (
                       <Empty>Select a text file to edit.</Empty>
