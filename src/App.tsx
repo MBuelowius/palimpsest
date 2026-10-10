@@ -200,15 +200,6 @@ export function App() {
             <span>Harnesses</span>
           </button>
         </nav>
-        <div className="sidebar-bottom">
-          <span className="local-dot" />
-          Local files, local changes
-          <small>
-            {inventory
-              ? `${inventory.harnesses.filter((harness) => harness.detected).length} harnesses detected`
-              : "Detecting harnesses…"}
-          </small>
-        </div>
       </aside>
       <main className="main-panel">
         <header className="page-header">
