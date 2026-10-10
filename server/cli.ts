@@ -7,6 +7,7 @@ import { createServer } from "./http.ts";
 
 import { Marketplaces } from "./marketplaces.ts";
 import { detectHarnesses, harnessDefinitions } from "./harnesses.ts";
+import { runReview } from "./review.ts";
 
 const args = process.argv.slice(2);
 function option(flag: string) {
@@ -28,6 +29,7 @@ palimpsest stop [--port 4319]          Stop this library’s local server
 palimpsest list [--json]               List personal and shared skills
 palimpsest harnesses [--json]          Detect installed AI harnesses
 palimpsest inspect <name>              Read versions, issues, and diffs
+palimpsest review --agent codex        Review setup using installed Codex or Claude
 palimpsest share <name> --source <id>   Preview sharing; add --apply to commit
 palimpsest share-identical             Preview identical packages; add --apply
 palimpsest sync                        Preview existing skill sync; add --apply
@@ -74,6 +76,14 @@ async function main() {
         for (const evidence of harness.evidence)
           process.stdout.write(`  ${evidence.kind}: ${evidence.path}\n`);
       }
+    return;
+  }
+  if (command === "review") {
+    const result = await runReview(
+      library,
+      (option("--agent") ?? "codex") as Tool,
+    );
+    process.stdout.write(result.report + "\n");
     return;
   }
   if (command === "marketplace") {

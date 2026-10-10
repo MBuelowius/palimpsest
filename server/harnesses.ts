@@ -3,7 +3,13 @@ import os from "node:os";
 import path from "node:path";
 
 import { harnessDefinitions, type Tool } from "../shared/harnesses.ts";
-export { harnessDefinitions, type Tool } from "../shared/harnesses.ts";
+export {
+  harnessDefinitions,
+  harnesses,
+  toolLabel,
+  sourceLabel,
+  type Tool,
+} from "../shared/harnesses.ts";
 
 export type Harness = {
   id: Tool;
@@ -39,7 +45,7 @@ export function skillRoots(home: string) {
   roots.splice(2, 0, {
     id: "agents",
     tool: "codex",
-    label: "Codex · agents folder",
+    label: "Common agents folder",
     path: path.join(home, ".agents", "skills"),
   });
   roots[1].label = "Codex · legacy folder";

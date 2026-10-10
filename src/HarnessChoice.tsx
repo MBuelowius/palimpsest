@@ -1,4 +1,5 @@
 import { Checkbox } from "@/components/ui/checkbox";
+import { harnesses as supportedHarnesses } from "../shared/harnesses";
 import type { Harness, Tool } from "../server/harnesses";
 
 export function HarnessChoice({
@@ -31,8 +32,15 @@ export function HarnessChoice({
                 )
               }
             />
-            <span>
+            <span className="harness-choice-text">
               {harness.name}
+              <small>
+                ~/
+                {
+                  supportedHarnesses.find((item) => item.id === harness.id)!
+                    .directory
+                }
+              </small>
               {!harness.detected && (
                 <small className="harness-undetected">Not detected</small>
               )}

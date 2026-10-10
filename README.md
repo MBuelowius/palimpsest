@@ -15,6 +15,8 @@ This is an early project. Review previews before applying changes and keep an in
 
 Palimpsest does not execute skill scripts. A tool consuming an installed skill may execute them; inspect third-party instructions and files before enabling a package.
 
+Use **Review setup** to ask an installed Codex or Claude Code CLI to inspect your personal skills and propose changes. Palimpsest passes the inventory to the CLI and displays its report; the existing harness handles authentication, models, and tool use. Codex runs with its read-only sandbox; Claude runs in planning mode with only file-reading tools and no MCP servers. The review excludes app-managed plugins, synced skills, and system skills. Skill paths and inspected content go to the agent's configured provider and may use paid tokens. Reports stay in the current browser session; copy a report before reloading.
+
 ## Run from source
 
 Use Node.js 24 and npm. Git is required to download marketplace repositories. The local installer targets macOS and Linux; Windows installation is not supported.
@@ -61,6 +63,8 @@ palimpsest --help
 palimpsest harnesses
 palimpsest list
 palimpsest inspect example
+palimpsest review --agent codex
+palimpsest review --agent claude
 palimpsest share example --source claude
 palimpsest share example --source claude --apply
 palimpsest history

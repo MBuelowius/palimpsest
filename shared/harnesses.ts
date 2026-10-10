@@ -19,7 +19,7 @@ type HarnessDefinition = {
 export const harnessDefinitions: HarnessDefinition[] = [
   {
     id: "claude",
-    name: "Claude",
+    name: "Claude Code",
     config: ".claude",
     commands: ["claude"],
     apps: ["Claude.app"],
@@ -39,7 +39,7 @@ export const harnessDefinitions: HarnessDefinition[] = [
     config: ".cursor",
     commands: ["cursor", "cursor-agent"],
     apps: ["Cursor.app"],
-    requiresName: false,
+    requiresName: true,
   },
   {
     id: "gemini",
@@ -74,3 +74,21 @@ export const harnessDefinitions: HarnessDefinition[] = [
     requiresName: true,
   },
 ];
+
+export const harnesses = harnessDefinitions.map((harness) => ({
+  id: harness.id,
+  label: harness.name,
+  directory:
+    harness.id === "codex" ? ".agents/skills" : harness.config + "/skills",
+  root: harness.id === "codex" ? "agents" : harness.id,
+}));
+export const toolLabel = Object.fromEntries(
+  harnesses.map((harness) => [harness.id, harness.label]),
+) as Record<Tool, string>;
+export const sourceLabel: Record<string, string> = {
+  ...toolLabel,
+  codex: "Codex · legacy folder",
+  agents: "Common agents folder",
+  devin: "Devin",
+  shared: "Shared library",
+};

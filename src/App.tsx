@@ -1,4 +1,5 @@
 import { MarketplacesPage } from "./Marketplaces";
+import { SetupReview } from "./SetupReview";
 import { SyncSkills } from "./SyncSkills";
 import {
   useEffect,
@@ -50,20 +51,15 @@ import {
   type History,
 } from "./api";
 import type { Harness, Tool } from "../server/harnesses";
-import { harnessDefinitions } from "../shared/harnesses";
+import {
+  harnesses as supportedHarnesses,
+  toolLabel,
+  sourceLabel,
+} from "../shared/harnesses";
 import { HarnessChoice } from "./HarnessChoice";
 import { cn } from "@/lib/utils";
 
 type View = "library" | "history" | "settings" | "marketplaces";
-const sourceLabel: Record<string, string> = {
-  ...Object.fromEntries(
-    harnessDefinitions.map((harness) => [harness.id, harness.name]),
-  ),
-  codex: "Codex · legacy folder",
-  agents: "Codex · agents folder",
-  shared: "Shared library",
-  devin: "Devin",
-};
 const statusLabel: Record<string, string> = {
   local: "Local copy",
   identical: "Ready to share",
@@ -93,6 +89,7 @@ function Empty({ children }: { children: ReactNode }) {
   );
 }
 export function App() {
+  const [setupReviewOpen, setSetupReviewOpen] = useState(false);
   const [inventory, setInventory] = useState<InventoryView>(),
     [view, setView] = useState<View>("library");
   const [search, setSearch] = useState(""),
@@ -152,12 +149,13 @@ export function App() {
   const title = {
     library: "Your skills",
     history: "Backups",
-    settings: "Locations",
+    settings: "Harnesses & locations",
     marketplaces: "Marketplaces",
   }[view];
   const latest = history.find((h) => h.status === "committed")?.id;
   return (
     <div className="app-shell">
+      <SetupReview open={setupReviewOpen} onOpenChange={setSetupReviewOpen} />
       <aside className="sidebar">
         <a
           className="brand"
@@ -199,7 +197,7 @@ export function App() {
             onClick={() => setView("settings")}
           >
             <Settings2 size={17} />
-            <span>Locations</span>
+            <span>Harnesses</span>
           </button>
         </nav>
         <div className="sidebar-bottom">
@@ -220,7 +218,7 @@ export function App() {
               {view === "history"
                 ? "Every change has a backup. Restore the latest operation first."
                 : view === "settings"
-                  ? "One shared package, linked to the apps you choose."
+                  ? "One shared package, linked to the harnesses you choose."
                   : view === "marketplaces"
                     ? "Browse and install skills from GitHub."
                     : `${inventory?.counts.total ?? 0} skills on this Mac`}
@@ -230,6 +228,13 @@ export function App() {
             {view === "library" && inventory && (
               <SyncSkills harnesses={inventory.harnesses} onSynced={changed} />
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSetupReviewOpen(true)}
+            >
+              Review setup
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -291,11 +296,11 @@ export function App() {
                 />
               </div>
               <select
-                aria-label="Filter by app"
+                aria-label="Filter by harness"
                 value={toolFilter}
                 onChange={(e) => setToolFilter(e.target.value)}
               >
-                <option value="all">All apps</option>
+                <option value="all">All harnesses</option>
                 {inventory?.harnesses.map((harness) => (
                   <option key={harness.id} value={harness.id}>
                     {harness.name}
@@ -320,7 +325,7 @@ export function App() {
             <section className="skill-table" aria-label="Skills">
               <div className="table-heading">
                 <span>Skill</span>
-                <span className="app-heading">Harness links</span>
+                <span>Harness folders</span>
                 <span>Status</span>
                 <span />
               </div>
@@ -349,22 +354,16 @@ export function App() {
                         </small>
                       </span>
                     </span>
-                    <span
-                      className={cn(
-                        "app-cell",
-                        !skill.tools.length && "app-off",
+                    <span className="harness-tags">
+                      {skill.tools.length ? (
+                        skill.tools.map((tool) => (
+                          <span key={tool} className="harness-tag">
+                            {toolLabel[tool]}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="muted">Library only</span>
                       )}
-                    >
-                      {skill.tools.length
-                        ? skill.tools
-                            .map(
-                              (tool) =>
-                                harnessDefinitions.find(
-                                  (harness) => harness.id === tool,
-                                )!.name,
-                            )
-                            .join(", ")
-                        : "—"}
                     </span>
                     <Status status={skill.status} />
                     <ChevronRight size={16} className="row-arrow" />
@@ -441,38 +440,69 @@ export function App() {
             <h2>Shared library</h2>
             <p>Edit one package here; enabled apps read the same files.</p>
             <code>{shorten(inventory.shared)}</code>
-            <h2>Detected harnesses</h2>
+            <h2>Harness detection and folders</h2>
             <p>
-              Checked when the library loads or you press Refresh. Configuration
-              folders can remain after an uninstall.
+              Detection is refreshed with the library. Configuration folders can
+              remain after an uninstall.
             </p>
-            {inventory.harnesses.map((harness) => (
-              <div className="harness-row" key={harness.id}>
-                <div>
-                  <strong>{harness.name}</strong>
-                  <Badge variant="outline">
-                    {harness.detected ? "Detected" : "Not detected"}
-                  </Badge>
-                </div>
-                {!!harness.evidence.length && (
-                  <details>
-                    <summary>Detection details</summary>
-                    {harness.evidence.map((evidence) => (
-                      <p key={evidence.path}>
-                        {evidence.kind}: <code>{shorten(evidence.path)}</code>
-                      </p>
+            <p>
+              Manage personal skills for each harness. Counts show files in
+              these folders, not installed apps or loaded skills.
+            </p>
+            <div className="harness-locations">
+              {supportedHarnesses.map((harness) => {
+                const roots = inventory.roots.filter(
+                  (root) => root.tool === harness.id,
+                );
+                const count = inventory.skills.filter((skill) =>
+                  skill.tools.includes(harness.id),
+                ).length;
+                return (
+                  <div className="harness-location" key={harness.id}>
+                    <div>
+                      <strong>{harness.label}</strong>
+                      <Badge variant="outline">
+                        {inventory.harnesses.find(
+                          (item) => item.id === harness.id,
+                        )!.detected
+                          ? "Detected"
+                          : "Not detected"}
+                      </Badge>
+                      <span>
+                        {count} {count === 1 ? "skill" : "skills"}
+                      </span>
+                    </div>
+                    {inventory.harnesses
+                      .find((item) => item.id === harness.id)!
+                      .evidence.map((evidence) => (
+                        <p className="harness-evidence" key={evidence.path}>
+                          {evidence.kind}: <code>{shorten(evidence.path)}</code>
+                        </p>
+                      ))}
+                    {roots.map((root) => (
+                      <code key={root.id}>{shorten(root.path)}</code>
                     ))}
-                  </details>
-                )}
-              </div>
-            ))}
-            <h2>App folders</h2>
-            {inventory.roots.map((root) => (
-              <div className="location-row" key={root.id}>
-                <strong>{root.label}</strong>
-                <code>{shorten(root.path)}</code>
-              </div>
-            ))}
+                    <button
+                      className="harness-browse"
+                      aria-label={`Browse ${harness.label} skills`}
+                      onClick={() => {
+                        setToolFilter(harness.id);
+                        setStatusFilter("all");
+                        setSearch("");
+                        setView("library");
+                      }}
+                    >
+                      Browse skills <ChevronRight size={14} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="locations-note">
+              The common ~/.agents/skills folder is also read by several
+              harnesses. Harness folder links do not control those discovery
+              rules.
+            </p>
             <h2>Backups</h2>
             <p>
               Original files are retained before each change. Restores refuse to
@@ -610,6 +640,13 @@ function SkillDialog({
       .then((next) => {
         if (active) {
           setDetail(next);
+          setTools(
+            next.managed
+              ? next.tools
+              : harnesses
+                  .filter((harness) => harness.detected)
+                  .map((harness) => harness.id),
+          );
           setSource(
             next.variants.find((v) => v.tool === "shared")?.id ??
               next.variants[0].id,
@@ -734,7 +771,8 @@ function SkillDialog({
                 <TabsTrigger value="files">
                   Files {dirty && <span className="unsaved-dot" />}
                 </TabsTrigger>
-                <TabsTrigger value="compare">Compare versions</TabsTrigger>
+                <TabsTrigger value="compare">Compare</TabsTrigger>
+                <TabsTrigger value="sharing">Sharing</TabsTrigger>
               </TabsList>
               <TabsContent value="overview" className="overview-tab">
                 <h3>When to use it</h3>
@@ -753,25 +791,25 @@ function SkillDialog({
                     ))}
                   </div>
                 )}
-                <h3>App links</h3>
+                <h3>Harness folders</h3>
                 <p className="muted">
                   {detail.managed
-                    ? "Linked apps read the shared package. Remove a link without deleting the skill."
-                    : "Share this skill to manage its availability from one place."}
+                    ? "These switches manage links in each harness folder. The shared package is retained when a link is removed."
+                    : "Share this skill to manage its folder links from one place."}
                 </p>
                 <div className="availability">
-                  {harnesses.map(({ id: tool, name: label }) => (
+                  {harnesses.map(({ id: tool }) => (
                     <div key={tool}>
                       <span>
-                        <strong>{label}</strong>
+                        <strong>{toolLabel[tool]}</strong>
                         <small>
                           {detail.tools.includes(tool)
-                            ? "Folder available"
+                            ? "Present in folder"
                             : "Not linked"}
                         </small>
                       </span>
                       <Switch
-                        aria-label={`Enable ${name} in ${tool}`}
+                        aria-label={`Link ${name} to ${toolLabel[tool]}`}
                         checked={detail.tools.includes(tool)}
                         disabled={
                           !detail.managed ||
@@ -782,13 +820,18 @@ function SkillDialog({
                           void run(
                             () =>
                               api.enabled(name, tool, enabled, detail.revision),
-                            `${name} ${enabled ? "enabled" : "disabled"} in ${tool}.`,
+                            `${name}: ${toolLabel[tool]} folder link ${enabled ? "added" : "removed"}.`,
                           )
                         }
                       />
                     </div>
                   ))}
                 </div>
+                <p className="muted discovery-note">
+                  Harnesses can also discover skills in common folders such as
+                  ~/.agents/skills. Removing a link here does not disable a
+                  skill inside the harness.
+                </p>
                 <h3>Versions on disk</h3>
                 <div className="version-list">
                   {detail.variants.map((variant) => (
@@ -1013,6 +1056,23 @@ function SkillDialog({
                   </details>
                 )}
               </TabsContent>
+              <TabsContent value="sharing" className="overview-tab">
+                <h3>Choose harness folders</h3>
+                <p className="muted">
+                  Share the {sourceLabel[source]} version with the harnesses
+                  selected below. Review the file changes before applying them.
+                </p>
+                <HarnessChoice
+                  harnesses={harnesses}
+                  tools={tools}
+                  setTools={setTools}
+                  disabled={busy}
+                />
+                <p className="muted discovery-note">
+                  Common folders may be read by other harnesses too. These
+                  choices control where Palimpsest places links.
+                </p>
+              </TabsContent>
             </Tabs>
           )}
           {detail && (
@@ -1030,12 +1090,10 @@ function SkillDialog({
                 </small>
               </div>
               <div className="share-controls">
-                <HarnessChoice
-                  harnesses={harnesses}
-                  tools={tools}
-                  setTools={setTools}
-                  disabled={busy}
-                />
+                <span className="muted">
+                  {tools.length} {tools.length === 1 ? "harness" : "harnesses"}{" "}
+                  selected
+                </span>
                 <Button
                   ref={shareButton}
                   disabled={busy || dirty || !tools.length}
@@ -1069,15 +1127,7 @@ function SkillDialog({
             <DialogTitle>Share {name}</DialogTitle>
             <DialogDescription>
               Use the {sourceLabel[plan?.source ?? ""]} version as the single
-              package for{" "}
-              {plan?.tools
-                .map(
-                  (tool) =>
-                    harnessDefinitions.find((harness) => harness.id === tool)!
-                      .name,
-                )
-                .join(" and ")}
-              .
+              package for {plan?.tools.map((t) => toolLabel[t]).join(" and ")}.
             </DialogDescription>
           </DialogHeader>
           <div className="share-review">
@@ -1091,7 +1141,7 @@ function SkillDialog({
                 <strong>Different versions will be backed up</strong>
                 {plan.replaced.map((item) => (
                   <p key={item.path}>
-                    {sourceLabel[item.tool]}
+                    {toolLabel[item.tool as Tool] ?? sourceLabel[item.tool]}
                     {item.version ? ` v${item.version}` : ""}
                   </p>
                 ))}
@@ -1219,7 +1269,7 @@ function CreateDialog({
               setDescription("");
               setBody("");
               await changed(
-                `${name} created and linked to ${tools.join(" and ")}.`,
+                `${name} created and linked to ${tools.map((tool) => toolLabel[tool]).join(", ")}.`,
               );
             } catch (e) {
               setError((e as Error).message);
@@ -1243,7 +1293,7 @@ function CreateDialog({
             Lowercase letters, numbers, hyphens, or underscores.
           </p>
           <label className="field-label" htmlFor="new-description">
-            When should the app use it?
+            When should the harness use it?
           </label>
           <Textarea
             id="new-description"
@@ -1264,7 +1314,7 @@ function CreateDialog({
             onChange={(e) => setBody(e.target.value)}
             required
           />
-          <label className="field-label">Available in</label>
+          <div className="field-label">Harness folders</div>
           <HarnessChoice
             harnesses={harnesses}
             tools={tools}
