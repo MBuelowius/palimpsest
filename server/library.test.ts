@@ -94,7 +94,7 @@ test("sync preserves disabled shared apps and unrelated target folders", (t) => 
   fs.writeFileSync(path.join(target, "keep.txt"), "Personal file");
   const linked = put(".claude", "linked");
   fs.symlinkSync(target, path.join(linked, "reference"));
-  const preview = library.syncPlan();
+  const preview = library.syncPlan(["claude", "codex"]);
   assert.equal(preview.plans.length, 0);
   assert.deepEqual(
     preview.skipped.map((p) => p.name),
@@ -137,7 +137,11 @@ test("sharing refuses to replace an unrelated app folder", (t) => {
   fs.mkdirSync(occupied, { recursive: true });
   fs.writeFileSync(path.join(occupied, "personal.txt"), "keep this");
   assert.throws(
-    () => library.share("example", "claude", library.skill("example").revision),
+    () =>
+      library.share("example", "claude", library.skill("example").revision, [
+        "claude",
+        "codex",
+      ]),
     /unrelated folder/,
   );
   assert.equal(
@@ -171,7 +175,10 @@ test("sharing makes both tools use one package and restore returns exact origina
 test("newly enabled Codex skill uses .agents and disabling preserves shared content", (t) => {
   const { library, put, home } = fixture(t);
   put(".claude", "example");
-  library.share("example", "claude", library.skill("example").revision);
+  library.share("example", "claude", library.skill("example").revision, [
+    "claude",
+    "codex",
+  ]);
   const binding = path.join(home, ".agents", "skills", "example");
   assert.equal(fs.lstatSync(binding).isSymbolicLink(), true);
   const result = library.setEnabled(
@@ -253,7 +260,10 @@ test("restoring refuses to overwrite changes made after adoption", (t) => {
 test("file edit updates both tools and backup can restore it", (t) => {
   const { library, put } = fixture(t);
   put(".claude", "example");
-  library.share("example", "claude", library.skill("example").revision);
+  library.share("example", "claude", library.skill("example").revision, [
+    "claude",
+    "codex",
+  ]);
   const file = library.readFile("example", "shared", "SKILL.md");
   const result = library.saveFile(
     "example",
@@ -361,4 +371,114 @@ test("HTTP writes require session token and reject foreign origins and hosts", a
     );
   });
   assert.equal(status, 403);
+});
+
+for (const [tool, directory] of [
+  ["cursor", ".cursor"],
+  ["gemini", ".gemini"],
+  ["copilot", ".copilot"],
+  ["opencode", ".config/opencode"],
+] as const) {
+  test(`${tool} shares full packages, removes only its binding, and restores it`, (t) => {
+    const { library, put, home } = fixture(t);
+    put(directory, "example", "Instructions", "Reference content");
+    assert.deepEqual(library.skill("example").tools, [tool]);
+    library.share("example", tool, library.skill("example").revision, [tool]);
+    const target = path.join(home, directory, "skills", "example");
+    assert.equal(fs.realpathSync(target), path.join(library.shared, "example"));
+    assert.equal(
+      fs.readFileSync(path.join(target, "references", "guide.md"), "utf8"),
+      "Reference content",
+    );
+    const operation = library.setEnabled(
+      "example",
+      tool,
+      false,
+      library.skill("example").revision,
+    );
+    assert.equal(fs.existsSync(target), false);
+    assert.equal(
+      fs.existsSync(path.join(library.shared, "example", "SKILL.md")),
+      true,
+    );
+    library.restore(operation.operation.id);
+    assert.equal(fs.realpathSync(target), path.join(library.shared, "example"));
+  });
+
+  test(`${tool} enables an existing shared skill in its own directory`, (t) => {
+    const { library, home } = fixture(t);
+    library.create("example", "Test skill", "Instructions", ["claude"]);
+    library.setEnabled(
+      "example",
+      tool,
+      true,
+      library.skill("example").revision,
+    );
+    assert.equal(
+      fs.realpathSync(path.join(home, directory, "skills", "example")),
+      path.join(library.shared, "example"),
+    );
+    assert.deepEqual(
+      new Set(library.skill("example").tools),
+      new Set(["claude", tool]),
+    );
+  });
+}
+
+test("creating across all harnesses produces distinct bindings to one package", (t) => {
+  const { library } = fixture(t);
+  const tools = [
+    "claude",
+    "codex",
+    "cursor",
+    "gemini",
+    "copilot",
+    "opencode",
+  ] as const;
+  library.create("example", "Test skill", "Instructions", [...tools]);
+  const skill = library.skill("example");
+  assert.deepEqual(new Set(skill.tools), new Set(tools));
+  assert.equal(
+    new Set(skill.variants.map((variant) => variant.realPath)).size,
+    1,
+  );
+  assert.equal(skill.variants.length, 7);
+  assert.throws(
+    () =>
+      library.create("invalid", "Description", "Body", ["unknown" as never]),
+    /supported harness/,
+  );
+});
+
+test("sync shares a Cursor package across all harnesses while preserving existing shared links", (t) => {
+  const { library, put, home } = fixture(t);
+  put(".cursor", "example", "Instructions", "Reference content");
+  library.create("already-shared", "Keep current links", "Instructions", [
+    "gemini",
+  ]);
+  const tools = [
+    "claude",
+    "codex",
+    "cursor",
+    "gemini",
+    "copilot",
+    "opencode",
+  ] as const;
+  const preview = library.syncPlan([...tools]);
+  assert.deepEqual(
+    preview.plans.map((plan) => plan.name),
+    ["example"],
+  );
+  const result = library.sync(preview.plans, preview.tools);
+  assert.deepEqual(result.synced, ["example"]);
+  assert.deepEqual(result.failed, []);
+  assert.deepEqual(new Set(library.skill("example").tools), new Set(tools));
+  assert.equal(
+    fs.readFileSync(
+      path.join(home, ".config/opencode/skills/example/references/guide.md"),
+      "utf8",
+    ),
+    "Reference content",
+  );
+  assert.deepEqual(library.skill("already-shared").tools, ["gemini"]);
 });

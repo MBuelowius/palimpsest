@@ -7,6 +7,7 @@ import { createServer } from "./http.ts";
 
 import { Marketplaces } from "./marketplaces.ts";
 import { SkillReviews, type ReviewSettings } from "./skillReviews.ts";
+import { detectHarnesses, harnessDefinitions } from "./harnesses.ts";
 
 const args = process.argv.slice(2);
 function option(flag: string) {
@@ -30,6 +31,7 @@ palimpsest ui                         Open the local web UI
 palimpsest serve [--port 4319]         Run the server in this terminal
 palimpsest stop [--port 4319]          Stop this library’s local server
 palimpsest list [--json]               List personal and shared skills
+palimpsest harnesses [--json]          Detect installed AI harnesses
 palimpsest inspect <name>              Read versions, issues, and diffs
 palimpsest review --agent codex        Review setup using installed Codex or Claude
 palimpsest review --due                Run a saved automatic review if due
@@ -42,8 +44,8 @@ palimpsest review report <id>          Read a saved report
 palimpsest share <name> --source <id>   Preview sharing; add --apply to commit
 palimpsest share-identical             Preview identical packages; add --apply
 palimpsest sync                        Preview existing skill sync; add --apply
-palimpsest enable <name> <claude|codex>
-palimpsest disable <name> <claude|codex>
+palimpsest enable <name> <harness>
+palimpsest disable <name> <harness>
 palimpsest marketplace list           List marketplace sources
 palimpsest marketplace add <repo>     Add a public GitHub source
 palimpsest marketplace browse <id>    List skills in a source
@@ -54,8 +56,10 @@ palimpsest marketplace remove <id>    Unregister a source
 palimpsest history                     List backups and operations
 palimpsest restore <operation-id>      Restore the latest operation
 
-Options: --home <directory> (isolated library), --tools claude,codex
-Sources: claude, codex, agents, shared. No skill scripts are executed.
+Options: --home <directory> (isolated library), --tools <comma-separated harnesses>
+Harnesses: ${harnessDefinitions.map((harness) => harness.id).join(", ")}
+Sharing and installation default to detected harnesses. --tools overrides detection.
+Sources: harness IDs, agents, devin, shared. No skill scripts are executed.
 `;
 
 async function main() {
@@ -64,9 +68,25 @@ async function main() {
   );
   const command = args[0] ?? "ui",
     name = args[1];
-  const tools = (option("--tools") ?? "claude,codex").split(",") as Tool[];
+  const chosenTools = option("--tools");
+  const tools = chosenTools
+    ? (chosenTools.split(",") as Tool[])
+    : library.detectedTools();
   if (args.includes("--help") || command === "help") {
     process.stdout.write(help);
+    return;
+  }
+  if (command === "harnesses") {
+    const harnesses = detectHarnesses(library.home);
+    if (args.includes("--json")) print(harnesses);
+    else
+      for (const harness of harnesses) {
+        process.stdout.write(
+          `${harness.name.padEnd(20)} ${harness.detected ? "Detected" : "Not detected"}\n`,
+        );
+        for (const evidence of harness.evidence)
+          process.stdout.write(`  ${evidence.kind}: ${evidence.path}\n`);
+      }
     return;
   }
   if (command === "review") {
@@ -315,7 +335,9 @@ async function main() {
   if (command === "share") {
     const source = option("--source");
     if (!source)
-      throw new Error("Choose --source claude, codex, agents, or shared.");
+      throw new Error(
+        "Choose --source from the skill's version IDs in inspect.",
+      );
     print(
       args.includes("--apply")
         ? library.share(name, source, skill.revision, tools)

@@ -1,12 +1,13 @@
 # Palimpsest
 
-Palimpsest is a local skill library for Claude and Codex. Compare skill packages, move a chosen version into a shared library, and manage which tools use it through a web UI or CLI.
+Palimpsest is a local skill library for Claude, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot, and Windsurf / Devin. Compare skill packages, move a chosen version into a shared library, and manage which tools use it through a web UI or CLI.
 
 This is an early project. Review previews before applying changes and keep an independent backup of your skills.
 
 ## What it does
 
-- Finds personal skills in `~/.claude/skills`, `~/.codex/skills`, and `~/.agents/skills`.
+- Detects harnesses from configuration folders, executable locations, macOS app bundles, and Copilot extensions. Locations shows the evidence; Refresh checks again.
+- Finds personal skills in each supported harness's default skill folders, including `~/.agents/skills` and Devin's additional `~/.config/devin/skills` folder.
 - Compares whole packages, including references and scripts, and flags differing versions.
 - Shares packages through `~/.harnesses-shared/skills` and tool-specific symlinks.
 - Edits skill files with operation backups and checks for changes made elsewhere.
@@ -65,6 +66,7 @@ Persist the PATH setting in your shell configuration if needed. The installer co
 
 ```sh
 palimpsest --help
+palimpsest harnesses
 palimpsest list
 palimpsest inspect example
 palimpsest review --agent codex
@@ -83,7 +85,9 @@ palimpsest history
 
 `review --due` uses saved preferences and runs only if a review is due. An OS scheduler can invoke it every minute without keeping the web server open. The first invocation records the observed snapshot; a later invocation establishes the 60-second stability window. This command does not install an OS schedule. Use `review configure --schedule off --on-change off` to stop automatic reviews. Review preferences, reports, and errors are private files under the selected home's state directory.
 
-Use `--home <existing-directory>` or `SKILL_LIBRARY_HOME` to select an isolated library. State, backups, marketplace downloads, and server logs are stored under `<home>/.local/share/skill-library/state`. Local packages may contain private information; do not attach this state directory to a public issue.
+Sharing, syncing, and marketplace installation default to the detected harnesses. Use `--tools cursor,gemini,opencode` to override detection, or choose harnesses manually in the UI. Configuration folders may remain after an uninstall, so detection is evidence of a local setup rather than a runtime health check. Harnesses can also discover skills in other apps' folders; Palimpsest manages the explicit links shown in its library.
+
+Use `--home <existing-directory>` or `SKILL_LIBRARY_HOME` to select an isolated library. A different home detects only fixtures inside that directory, without scanning the host's PATH or system applications. State, backups, marketplace downloads, and server logs are stored under `<home>/.local/share/skill-library/state`. Local packages may contain private information; do not attach this state directory to a public issue.
 
 ## Development
 

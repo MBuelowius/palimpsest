@@ -12,14 +12,19 @@ import {
 } from "@/components/ui/dialog";
 import { api, type SyncPlan } from "./api";
 import type { Tool } from "../server/library";
+import type { Harness } from "../server/harnesses";
+import { toolLabel, sourceLabel } from "../shared/harnesses";
+import { HarnessChoice } from "./HarnessChoice";
 
 export function SyncSkills({
+  harnesses,
   onSynced,
 }: {
+  harnesses: Harness[];
   onSynced: (message: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const [tools, setTools] = useState<Tool[]>(["claude", "codex"]);
+  const [tools, setTools] = useState<Tool[]>([]);
   const [preview, setPreview] = useState<SyncPlan>();
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -48,7 +53,7 @@ export function SyncSkills({
         preview.plans.filter((p) => selected.includes(p.name)),
         preview.tools,
       );
-      const status = `${result.synced.length} skills synced. ${result.failed.length ? `${result.failed.length} failed; review the errors below.` : "Future edits use the same files in the selected apps."}`;
+      const status = `${result.synced.length} skills synced. ${result.failed.length ? `${result.failed.length} failed; review the errors below.` : "Future edits use the same files in the selected harnesses."}`;
       setMessage(status);
       setPreview(undefined);
       await onSynced(status);
@@ -70,6 +75,11 @@ export function SyncSkills({
         size="sm"
         variant="outline"
         onClick={() => {
+          setTools(
+            harnesses
+              .filter((harness) => harness.detected)
+              .map((harness) => harness.id),
+          );
           setOpen(true);
           setPreview(undefined);
           setError("");
@@ -89,31 +99,21 @@ export function SyncSkills({
           <DialogHeader>
             <DialogTitle>Sync existing skills</DialogTitle>
             <DialogDescription>
-              Share your personal skill packages with the selected apps.
+              Share your personal skill packages with the selected harnesses.
               Conflicting versions need individual review. Already shared skills
-              keep their app settings.
+              keep their folder links.
             </DialogDescription>
           </DialogHeader>
-          <div className="tools-choice">
-            {(["claude", "codex"] as const).map((tool) => (
-              <label className="check-label" key={tool}>
-                <Checkbox
-                  aria-label={`Sync with ${tool === "claude" ? "Claude" : "Codex"}`}
-                  disabled={busy}
-                  checked={tools.includes(tool)}
-                  onCheckedChange={(checked) => {
-                    setTools(
-                      checked
-                        ? [...tools, tool]
-                        : tools.filter((t) => t !== tool),
-                    );
-                    setPreview(undefined);
-                  }}
-                />
-                {tool === "claude" ? "Claude" : "Codex"}
-              </label>
-            ))}
-          </div>
+          <HarnessChoice
+            harnesses={harnesses}
+            tools={tools}
+            disabled={busy}
+            action="Sync with"
+            setTools={(tools) => {
+              setTools(tools);
+              setPreview(undefined);
+            }}
+          />
           {message && (
             <p role="status" className="message success">
               {message}
@@ -149,7 +149,10 @@ export function SyncSkills({
                       <strong>{plan.name}</strong>
                       <small>
                         {plan.files} {plan.files === 1 ? "file" : "files"} ·
-                        from {plan.source} → {preview.tools.join(" + ")}
+                        from {sourceLabel[plan.source]} →{" "}
+                        {preview.tools
+                          .map((tool) => toolLabel[tool])
+                          .join(", ")}
                       </small>
                     </span>
                   </label>
@@ -157,7 +160,7 @@ export function SyncSkills({
               </div>
               {!preview.plans.length && (
                 <p className="empty">
-                  No skills need syncing to the selected apps.
+                  No skills need syncing to the selected harnesses.
                 </p>
               )}
               {!!preview.skipped.length && (
