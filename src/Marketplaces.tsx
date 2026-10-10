@@ -25,7 +25,7 @@ import {
   type CatalogueSkill,
   type MarketplacePreview,
 } from "./api";
-import type { Tool } from "../server/library";
+import { harnesses, toolLabel, type Tool } from "../server/harnesses";
 
 export function MarketplacesPage({
   onInstalled,
@@ -415,10 +415,10 @@ export function MarketplacesPage({
                 </ul>
               </details>
               <div className="tools-choice">
-                {(["claude", "codex"] as const).map((tool) => (
+                {harnesses.map(({ id: tool, directory }) => (
                   <label className="check-label" key={tool}>
                     <Checkbox
-                      aria-label={"Install for " + tool}
+                      aria-label={"Install for " + toolLabel[tool]}
                       checked={tools.includes(tool)}
                       onCheckedChange={(checked) =>
                         setTools((current) =>
@@ -428,7 +428,10 @@ export function MarketplacesPage({
                         )
                       }
                     />
-                    {tool === "claude" ? "Claude" : "Codex"}
+                    <span className="harness-choice-text">
+                      {toolLabel[tool]}
+                      <small>~/{directory}</small>
+                    </span>
                   </label>
                 ))}
               </div>

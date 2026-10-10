@@ -11,7 +11,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { api, type SyncPlan } from "./api";
-import type { Tool } from "../server/library";
+import {
+  harnesses,
+  toolLabel,
+  sourceLabel,
+  type Tool,
+} from "../server/harnesses";
 
 export function SyncSkills({
   onSynced,
@@ -48,7 +53,7 @@ export function SyncSkills({
         preview.plans.filter((p) => selected.includes(p.name)),
         preview.tools,
       );
-      const status = `${result.synced.length} skills synced. ${result.failed.length ? `${result.failed.length} failed; review the errors below.` : "Future edits use the same files in the selected apps."}`;
+      const status = `${result.synced.length} skills synced. ${result.failed.length ? `${result.failed.length} failed; review the errors below.` : "Future edits use the same files in the selected harnesses."}`;
       setMessage(status);
       setPreview(undefined);
       await onSynced(status);
@@ -89,16 +94,16 @@ export function SyncSkills({
           <DialogHeader>
             <DialogTitle>Sync existing skills</DialogTitle>
             <DialogDescription>
-              Share your personal skill packages with the selected apps.
+              Share your personal skill packages with the selected harnesses.
               Conflicting versions need individual review. Already shared skills
-              keep their app settings.
+              keep their folder links.
             </DialogDescription>
           </DialogHeader>
           <div className="tools-choice">
-            {(["claude", "codex"] as const).map((tool) => (
+            {harnesses.map(({ id: tool, directory }) => (
               <label className="check-label" key={tool}>
                 <Checkbox
-                  aria-label={`Sync with ${tool === "claude" ? "Claude" : "Codex"}`}
+                  aria-label={`Sync with ${toolLabel[tool]}`}
                   disabled={busy}
                   checked={tools.includes(tool)}
                   onCheckedChange={(checked) => {
@@ -110,7 +115,10 @@ export function SyncSkills({
                     setPreview(undefined);
                   }}
                 />
-                {tool === "claude" ? "Claude" : "Codex"}
+                <span className="harness-choice-text">
+                  {toolLabel[tool]}
+                  <small>~/{directory}</small>
+                </span>
               </label>
             ))}
           </div>
@@ -149,7 +157,10 @@ export function SyncSkills({
                       <strong>{plan.name}</strong>
                       <small>
                         {plan.files} {plan.files === 1 ? "file" : "files"} ·
-                        from {plan.source} → {preview.tools.join(" + ")}
+                        from {sourceLabel[plan.source]} →{" "}
+                        {preview.tools
+                          .map((tool) => toolLabel[tool])
+                          .join(", ")}
                       </small>
                     </span>
                   </label>
@@ -157,7 +168,7 @@ export function SyncSkills({
               </div>
               {!preview.plans.length && (
                 <p className="empty">
-                  No skills need syncing to the selected apps.
+                  No skills need syncing to the selected harnesses.
                 </p>
               )}
               {!!preview.skipped.length && (
