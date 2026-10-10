@@ -25,7 +25,7 @@ export function MarkdownContent({
   resourceBaseUrl?: string;
 }) {
   const body = content
-    .replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "")
+    .replace(/^(?:\uFEFF)?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, "")
     .trim();
   return (
     <div className="markdown-content">
@@ -38,6 +38,9 @@ export function MarkdownContent({
           h3: "h4",
           h4: "h5",
           h5: "h6",
+          img: ({ alt }) => (
+            <span className="muted">Image: {alt || "Untitled image"}</span>
+          ),
           li: ({ node, children, ...props }) => (
             <ChecklistText.Provider value={markdownText(node!).trim()}>
               <li {...props}>{children}</li>

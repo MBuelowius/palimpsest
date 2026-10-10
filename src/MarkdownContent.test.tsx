@@ -96,3 +96,26 @@ test("collection references open the matching files on GitHub", () => {
   );
   assert.doesNotMatch(html, /<button/);
 });
+
+test("reader handles BOM and CRLF frontmatter without issuing image requests", () => {
+  const html = renderToStaticMarkup(
+    createElement(MarkdownContent, {
+      content:
+        "\uFEFF---\r\nname: example\r\ndescription: Private metadata\r\n---\r\n# Instructions\r\n\r\n![Example](https://example.com/tracker.png)",
+      files: [],
+      fileName: "SKILL.md",
+    }),
+  );
+  assert.match(html, /<h2>Instructions<\/h2>/);
+  assert.match(html, /Image: Example/);
+  assert.doesNotMatch(html, /Private metadata|name: example|<img|tracker.png/);
+  const metadataOnly = renderToStaticMarkup(
+    createElement(MarkdownContent, {
+      content: "---\nname: example\n---",
+      files: [],
+      fileName: "SKILL.md",
+    }),
+  );
+  assert.match(metadataOnly, /This file has no Markdown content yet/);
+  assert.doesNotMatch(metadataOnly, /name: example/);
+});

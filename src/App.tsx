@@ -1,6 +1,7 @@
 import { MarketplacesPage } from "./Marketplaces";
 import { SetupReview } from "./SetupReview";
 import { SettingsPage } from "./SettingsPage";
+import { SkillEditor } from "./SkillEditor";
 import {
   useEffect,
   useState,
@@ -740,7 +741,7 @@ function SkillPage({
   const otherApps = harnesses.filter(
     (harness) => !detail?.tools.includes(harness.id),
   );
-  const isMarkdown = /\.(md|markdown)$/i.test(fileName);
+  const isMarkdown = /\.(md|markdown|mdown)$/i.test(fileName);
   return (
     <section className="skill-reader" aria-labelledby="skill-title">
       {pending && (
@@ -966,6 +967,7 @@ function SkillPage({
                           <button
                             key={f}
                             className={cn(fileName === f && "file-selected")}
+                            aria-current={fileName === f ? "page" : undefined}
                             disabled={busy}
                             onClick={() => guard(() => setFileName(f))}
                             title={f}
@@ -1005,14 +1007,12 @@ function SkillPage({
                             }}
                           />
                         ) : file ? (
-                          <Textarea
+                          <SkillEditor
                             ref={editor}
-                            aria-label={`Edit ${fileName}`}
-                            className="code-editor"
+                            fileName={fileName}
                             value={draft}
-                            disabled={busy}
-                            spellCheck={false}
-                            onChange={(e) => setDraft(e.target.value)}
+                            readOnly={busy}
+                            onChange={setDraft}
                           />
                         ) : (
                           <Empty>Select a text file to edit.</Empty>

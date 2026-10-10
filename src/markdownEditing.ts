@@ -5,7 +5,11 @@ import {
   rootCtx,
   serializerCtx,
 } from "@milkdown/kit/core";
-import { commonmark, listItemSchema } from "@milkdown/kit/preset/commonmark";
+import {
+  commonmark,
+  imageSchema,
+  listItemSchema,
+} from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
@@ -19,7 +23,7 @@ export function createMarkdownEditor(
   onChange: (content: string) => void,
 ) {
   const frontmatter =
-    content.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0] ?? "";
+    content.match(/^(?:\uFEFF)?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0] ?? "";
   const body = content.slice(frontmatter.length);
   const changes = $prose(
     (ctx) =>
@@ -91,10 +95,30 @@ export function createMarkdownEditor(
         mutation.type !== "selection" && mutation.target === checkbox,
     };
   });
+  const images = $view(imageSchema.node, () => (node) => {
+    const dom = document.createElement("span");
+    dom.className = "muted";
+    dom.textContent = `Image: ${node.attrs.alt || "Untitled image"}`;
+    return { dom };
+  });
   return Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, body);
+      ctx.update(imageSchema.key, (previous) => (ctx) => ({
+        ...previous(ctx),
+        parseMarkdown: {
+          match: ({ type }) => type === "image",
+          runner: (state, node, type) => {
+            // Markdown permits omitted image attributes; the schema requires strings.
+            state.addNode(type, {
+              src: node.url,
+              alt: node.alt ?? "",
+              title: node.title ?? "",
+            });
+          },
+        },
+      }));
       ctx.set(editorViewOptionsCtx, {
         attributes: {
           role: "textbox",
@@ -117,5 +141,6 @@ export function createMarkdownEditor(
     .use(clipboard)
     .use(indent)
     .use(taskLists)
+    .use(images)
     .use(changes);
 }

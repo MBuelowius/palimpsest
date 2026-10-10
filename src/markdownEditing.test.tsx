@@ -40,7 +40,7 @@ before(() => {
 after(() => dom.window.close());
 
 const metadata =
-  "---\r\nname: sample\r\ndescription: Keep metadata exactly.\r\n# metadata comment\r\n---\r\n";
+  "\uFEFF---\r\nname: sample\r\ndescription: Keep metadata exactly.\r\n# metadata comment\r\n---\r\n";
 
 test("rendered edits preserve frontmatter, Markdown structures, comments, and line endings", async () => {
   const { createMarkdownEditor } = await import("./markdownEditing");
@@ -139,6 +139,30 @@ test("unsafe links and raw HTML remain inert in the rendered editor", async () =
     assert.equal(root.querySelector('a[href^="javascript:"]'), null);
     assert.equal(root.querySelector("script"), null);
     assert.match(root.textContent!, /<script>alert\(1\)<\/script>/);
+  } finally {
+    await editor.destroy();
+    root.remove();
+  }
+});
+
+test("rendered editing preserves image Markdown without loading the image", async () => {
+  const { createMarkdownEditor } = await import("./markdownEditing");
+  const { editorViewCtx } = await import("@milkdown/kit/core");
+  const root = document.createElement("div");
+  document.body.append(root);
+  const content =
+    "# Instructions\n\n![Example](https://example.com/tracker.png)\n";
+  let output = content;
+  const editor = createMarkdownEditor(root, content, "Edit file", (next) => {
+    output = next;
+  });
+  await editor.create();
+  try {
+    assert.ok(root.querySelector("img[src]") === null);
+    assert.match(root.textContent!, /Image: Example/);
+    const view = editor.ctx.get(editorViewCtx);
+    view.dispatch(view.state.tr.insertText("Updated ", 1));
+    assert.match(output, /!\[Example\]\(https:\/\/example.com\/tracker.png\)/);
   } finally {
     await editor.destroy();
     root.remove();
