@@ -4,8 +4,13 @@ import os from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { parseDocument } from "yaml";
 import { createTwoFilesPatch } from "diff";
+import {
+  detectHarnesses,
+  harnessDefinitions,
+  skillRoots,
+  type Tool,
+} from "./harnesses.ts";
 
-import { harnesses, toolLabel, type Tool } from "./harnesses.ts";
 export type { Tool } from "./harnesses.ts";
 export type Variant = {
   id: string;
@@ -105,9 +110,7 @@ export function metadata(content: string) {
   if (typeof data.description !== "string" || !data.description.trim())
     issues.push("Missing description.");
   if (typeof data.name !== "string")
-    issues.push(
-      "No name field; Claude can use the folder name, but Codex needs a name.",
-    );
+    issues.push("No name field; some harnesses require one before sharing.");
   if (
     data["allowed-tools"] ||
     data.context ||
@@ -169,7 +172,7 @@ export class SkillLibrary {
   readonly home: string;
   readonly shared: string;
   readonly state: string;
-  readonly roots: { id: string; tool: Tool; path: string }[];
+  readonly roots: ReturnType<typeof skillRoots>;
   constructor(home = os.homedir()) {
     this.home = fs.realpathSync(path.resolve(home));
     this.shared = path.join(this.home, ".harnesses-shared", "skills");
@@ -180,18 +183,12 @@ export class SkillLibrary {
       "skill-library",
       "state",
     );
-    this.roots = [
-      ...harnesses.map((harness) => ({
-        id: harness.root,
-        tool: harness.id,
-        path: path.join(this.home, harness.directory),
-      })),
-      {
-        id: "codex",
-        tool: "codex",
-        path: path.join(this.home, ".codex", "skills"),
-      },
-    ];
+    this.roots = skillRoots(this.home);
+  }
+  detectedTools(): Tool[] {
+    return detectHarnesses(this.home)
+      .filter((harness) => harness.detected)
+      .map((harness) => harness.id);
   }
   private manifest(): Manifest {
     const p = path.join(this.state, "manifest.json");
@@ -302,6 +299,7 @@ export class SkillLibrary {
       skills,
       scanIssues,
       roots: this.roots,
+      harnesses: detectHarnesses(this.home),
       shared: this.shared,
       state: this.state,
       counts: {
@@ -376,7 +374,7 @@ export class SkillLibrary {
     name: string,
     source: string,
     revision: string,
-    tools: Tool[] = ["claude", "codex"],
+    tools: Tool[] = this.detectedTools(),
   ) {
     return this.planSkill(this.skill(name, revision), source, tools);
   }
@@ -399,10 +397,7 @@ export class SkillLibrary {
       throw new LibraryError(
         "Fix the selected version’s YAML frontmatter and description before sharing.",
       );
-    if (tools.some((tool) => tool !== "claude") && !meta.title)
-      throw new LibraryError(
-        "Add a name field before sharing with the selected harnesses.",
-      );
+    this.validateCompatibility(name, meta.title, tools);
     const canonical = path.join(this.shared, name);
     if (present(canonical) && fs.lstatSync(canonical).isSymbolicLink())
       throw new LibraryError(
@@ -417,7 +412,14 @@ export class SkillLibrary {
       const existing = skill.variants.filter((v) => v.tool === tool);
       return existing.length
         ? existing.map((v) => v.path)
-        : [path.join(this.roots.find((r) => r.tool === tool)!.path, name)];
+        : [
+            path.join(
+              this.roots.find(
+                (r) => r.id === (tool === "codex" ? "agents" : tool),
+              )!.path,
+              name,
+            ),
+          ];
     });
     if (
       targets.some(
@@ -448,10 +450,34 @@ export class SkillLibrary {
     if (
       !Array.isArray(tools) ||
       !tools.length ||
-      tools.some((t) => !harnesses.some((harness) => harness.id === t)) ||
+      tools.some(
+        (t) => !harnessDefinitions.some((harness) => harness.id === t),
+      ) ||
       new Set(tools).size !== tools.length
     )
-      throw new LibraryError("Choose at least one supported harness.");
+      throw new LibraryError(
+        "Choose at least one supported harness. If none were detected, select one manually.",
+      );
+  }
+  private validateCompatibility(name: string, title: string, tools: Tool[]) {
+    const requiresName = harnessDefinitions.filter(
+      (harness) => tools.includes(harness.id) && harness.requiresName,
+    );
+    if (!title && requiresName.length)
+      throw new LibraryError(
+        "Add a name field before sharing with " +
+          requiresName.map((harness) => harness.name).join(", ") +
+          ".",
+      );
+    if (
+      tools.includes("opencode") &&
+      (title !== name ||
+        title.length > 64 ||
+        !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(title))
+    )
+      throw new LibraryError(
+        "OpenCode requires a name matching the folder, with up to 64 lowercase letters, numbers, and single hyphens.",
+      );
   }
   private lock<T>(run: () => T): T {
     fs.mkdirSync(this.state, { recursive: true, mode: 0o700 });
@@ -539,14 +565,20 @@ export class SkillLibrary {
     name: string,
     source: string,
     revision: string,
-    tools: Tool[] = ["claude", "codex"],
+    tools: Tool[] = this.detectedTools(),
   ) {
     return this.lock(() => {
       const plan = this.plan(name, source, revision, tools);
       const chosen = this.variant(this.skill(name, revision), source);
       return this.transaction(
         name,
-        "Share with " + tools.map((t) => toolLabel[t]).join(" and "),
+        "Share with " +
+          tools
+            .map(
+              (tool) =>
+                harnessDefinitions.find((harness) => harness.id === tool)!.name,
+            )
+            .join(" and "),
         [plan.canonical, ...plan.targets],
         () => {
           if (chosen.realPath !== plan.canonical) {
@@ -593,6 +625,13 @@ export class SkillLibrary {
         throw new LibraryError(
           "Share this skill before changing its app availability.",
         );
+      if (enabled)
+        this.validateCompatibility(
+          name,
+          metadata(fs.readFileSync(path.join(canonical, "SKILL.md"), "utf8"))
+            .title,
+          [tool],
+        );
       const bindings = skill.variants.filter((v) => v.tool === tool);
       if (bindings.some((v) => !v.linked || v.realPath !== canonical))
         throw new LibraryError(
@@ -601,7 +640,14 @@ export class SkillLibrary {
         );
       const targets = bindings.length
         ? bindings.map((v) => v.path)
-        : [path.join(this.roots.find((r) => r.tool === tool)!.path, name)];
+        : [
+            path.join(
+              this.roots.find(
+                (r) => r.id === (tool === "codex" ? "agents" : tool),
+              )!.path,
+              name,
+            ),
+          ];
       if (!bindings.length && targets.some((target) => present(target)))
         throw new LibraryError(
           "An unrelated folder occupies this app location. It has been left untouched.",
@@ -702,6 +748,7 @@ export class SkillLibrary {
           "Use a lowercase folder name with letters, numbers, hyphens, or underscores.",
         );
       this.validateTools(tools);
+      this.validateCompatibility(name, name, tools);
       if (!description.trim() || description.length > 1024)
         throw new LibraryError("Add a description of 1–1024 characters.");
       if (this.inventory().skills.some((s) => s.name === name))
@@ -711,7 +758,12 @@ export class SkillLibrary {
         );
       const canonical = path.join(this.shared, name),
         targets = tools.map((tool) =>
-          path.join(this.roots.find((r) => r.tool === tool)!.path, name),
+          path.join(
+            this.roots.find(
+              (r) => r.id === (tool === "codex" ? "agents" : tool),
+            )!.path,
+            name,
+          ),
         );
       if ([canonical, ...targets].some((p) => present(p)))
         throw new LibraryError("An existing directory uses this name.", 409);
@@ -751,6 +803,7 @@ export class SkillLibrary {
       );
       if (!info.description)
         throw new LibraryError("The package needs valid skill metadata.");
+      this.validateCompatibility(name, info.title, tools);
       if (this.inventory().skills.some((s) => s.name === name))
         throw new LibraryError(
           "This skill already exists. Existing files were preserved.",
@@ -758,7 +811,11 @@ export class SkillLibrary {
         );
       const canonical = path.join(this.shared, name);
       const targets = tools.map((tool) =>
-        path.join(this.roots.find((r) => r.tool === tool)!.path, name),
+        path.join(
+          this.roots.find((r) => r.id === (tool === "codex" ? "agents" : tool))!
+            .path,
+          name,
+        ),
       );
       if ([canonical, ...targets].some((p) => present(p)))
         throw new LibraryError("An existing directory uses this name.", 409);
@@ -823,7 +880,7 @@ export class SkillLibrary {
       return { restored: id };
     });
   }
-  syncPlan(tools: Tool[] = ["claude", "codex"]) {
+  syncPlan(tools: Tool[] = this.detectedTools()) {
     this.validateTools(tools);
     const plans: ReturnType<SkillLibrary["plan"]>[] = [];
     const skipped: { name: string; reason: string }[] = [];

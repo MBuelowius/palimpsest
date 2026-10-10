@@ -11,20 +11,20 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { api, type SyncPlan } from "./api";
-import {
-  harnesses,
-  toolLabel,
-  sourceLabel,
-  type Tool,
-} from "../server/harnesses";
+import type { Tool } from "../server/library";
+import type { Harness } from "../server/harnesses";
+import { toolLabel, sourceLabel } from "../shared/harnesses";
+import { HarnessChoice } from "./HarnessChoice";
 
 export function SyncSkills({
+  harnesses,
   onSynced,
 }: {
+  harnesses: Harness[];
   onSynced: (message: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const [tools, setTools] = useState<Tool[]>(["claude", "codex"]);
+  const [tools, setTools] = useState<Tool[]>([]);
   const [preview, setPreview] = useState<SyncPlan>();
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -75,6 +75,11 @@ export function SyncSkills({
         size="sm"
         variant="outline"
         onClick={() => {
+          setTools(
+            harnesses
+              .filter((harness) => harness.detected)
+              .map((harness) => harness.id),
+          );
           setOpen(true);
           setPreview(undefined);
           setError("");
@@ -99,29 +104,16 @@ export function SyncSkills({
               keep their folder links.
             </DialogDescription>
           </DialogHeader>
-          <div className="tools-choice">
-            {harnesses.map(({ id: tool, directory }) => (
-              <label className="check-label" key={tool}>
-                <Checkbox
-                  aria-label={`Sync with ${toolLabel[tool]}`}
-                  disabled={busy}
-                  checked={tools.includes(tool)}
-                  onCheckedChange={(checked) => {
-                    setTools(
-                      checked
-                        ? [...tools, tool]
-                        : tools.filter((t) => t !== tool),
-                    );
-                    setPreview(undefined);
-                  }}
-                />
-                <span className="harness-choice-text">
-                  {toolLabel[tool]}
-                  <small>~/{directory}</small>
-                </span>
-              </label>
-            ))}
-          </div>
+          <HarnessChoice
+            harnesses={harnesses}
+            tools={tools}
+            disabled={busy}
+            action="Sync with"
+            setTools={(tools) => {
+              setTools(tools);
+              setPreview(undefined);
+            }}
+          />
           {message && (
             <p role="status" className="message success">
               {message}

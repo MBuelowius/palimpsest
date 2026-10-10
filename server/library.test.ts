@@ -94,7 +94,7 @@ test("sync preserves disabled shared apps and unrelated target folders", (t) => 
   fs.writeFileSync(path.join(target, "keep.txt"), "Personal file");
   const linked = put(".claude", "linked");
   fs.symlinkSync(target, path.join(linked, "reference"));
-  const preview = library.syncPlan();
+  const preview = library.syncPlan(["claude", "codex"]);
   assert.equal(preview.plans.length, 0);
   assert.deepEqual(
     preview.skipped.map((p) => p.name),
@@ -137,7 +137,11 @@ test("sharing refuses to replace an unrelated app folder", (t) => {
   fs.mkdirSync(occupied, { recursive: true });
   fs.writeFileSync(path.join(occupied, "personal.txt"), "keep this");
   assert.throws(
-    () => library.share("example", "claude", library.skill("example").revision),
+    () =>
+      library.share("example", "claude", library.skill("example").revision, [
+        "claude",
+        "codex",
+      ]),
     /unrelated folder/,
   );
   assert.equal(
@@ -171,7 +175,10 @@ test("sharing makes both tools use one package and restore returns exact origina
 test("newly enabled Codex skill uses .agents and disabling preserves shared content", (t) => {
   const { library, put, home } = fixture(t);
   put(".claude", "example");
-  library.share("example", "claude", library.skill("example").revision);
+  library.share("example", "claude", library.skill("example").revision, [
+    "claude",
+    "codex",
+  ]);
   const binding = path.join(home, ".agents", "skills", "example");
   assert.equal(fs.lstatSync(binding).isSymbolicLink(), true);
   const result = library.setEnabled(
@@ -253,7 +260,10 @@ test("restoring refuses to overwrite changes made after adoption", (t) => {
 test("file edit updates both tools and backup can restore it", (t) => {
   const { library, put } = fixture(t);
   put(".claude", "example");
-  library.share("example", "claude", library.skill("example").revision);
+  library.share("example", "claude", library.skill("example").revision, [
+    "claude",
+    "codex",
+  ]);
   const file = library.readFile("example", "shared", "SKILL.md");
   const result = library.saveFile(
     "example",
