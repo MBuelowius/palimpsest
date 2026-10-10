@@ -6,14 +6,18 @@ import { SkillLibrary, type Tool } from "./library.ts";
 import { createServer } from "./http.ts";
 
 import { Marketplaces } from "./marketplaces.ts";
-import { runReview } from "./review.ts";
+import { SkillReviews, type ReviewSettings } from "./skillReviews.ts";
 
 const args = process.argv.slice(2);
 function option(flag: string) {
   const index = args.indexOf(flag);
   if (index < 0) return undefined;
   const value = args[index + 1];
-  if (!value || value.startsWith("--"))
+  if (
+    value === undefined ||
+    (!value && flag !== "--model" && flag !== "--context") ||
+    value.startsWith("--")
+  )
     throw new Error(flag + " needs a value.");
   return value;
 }
@@ -28,6 +32,13 @@ palimpsest stop [--port 4319]          Stop this library’s local server
 palimpsest list [--json]               List personal and shared skills
 palimpsest inspect <name>              Read versions, issues, and diffs
 palimpsest review --agent codex        Review setup using installed Codex or Claude
+palimpsest review --due                Run a saved automatic review if due
+palimpsest review settings             Show review preferences
+palimpsest review configure            Set --agent, --model, --context,
+                                      --schedule off|weekly|monthly,
+                                      --on-change on|off
+palimpsest review history              List saved reviews
+palimpsest review report <id>          Read a saved report
 palimpsest share <name> --source <id>   Preview sharing; add --apply to commit
 palimpsest share-identical             Preview identical packages; add --apply
 palimpsest sync                        Preview existing skill sync; add --apply
@@ -59,9 +70,47 @@ async function main() {
     return;
   }
   if (command === "review") {
-    const result = await runReview(
-      library,
-      (option("--agent") ?? "codex") as Tool,
+    const reviews = new SkillReviews(library);
+    if (name === "settings") return print(reviews.status().settings);
+    if (name === "history") return print(reviews.status());
+    if (name === "report") {
+      if (!args[2]) throw new Error("Provide a review ID from review history.");
+      process.stdout.write(reviews.report(args[2]).report + "\n");
+      return;
+    }
+    if (name === "configure") {
+      const current = reviews.status().settings;
+      const onChange = option("--on-change");
+      if (onChange !== undefined && onChange !== "on" && onChange !== "off")
+        throw new Error("Use --on-change on or off.");
+      return print(
+        reviews.saveSettings({
+          ...current,
+          agent: (option("--agent") ?? current.agent) as Tool,
+          model: option("--model") ?? current.model,
+          context: option("--context") ?? current.context,
+          schedule: (option("--schedule") ??
+            current.schedule) as ReviewSettings["schedule"],
+          onChange:
+            onChange === undefined ? current.onChange : onChange === "on",
+        }),
+      );
+    }
+    if (args.includes("--due")) {
+      if (
+        ["--agent", "--model", "--context"].some((flag) => args.includes(flag))
+      )
+        throw new Error(
+          "Use review configure to set the agent and model context for automatic reviews.",
+        );
+      return print(await reviews.runDue());
+    }
+    if (name && !name.startsWith("--"))
+      throw new Error("Unknown review command.");
+    const result = await reviews.run(
+      option("--agent") as Tool | undefined,
+      option("--model"),
+      option("--context"),
     );
     process.stdout.write(result.report + "\n");
     return;
