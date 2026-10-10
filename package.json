@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "dev:server": "tsx server/cli.ts serve --port 4318",
     "build": "tsc -b && vite build && node scripts/build.mjs",
-    "test": "tsx --test server/*.test.ts",
+    "test": "tsx --test server/*.test.ts src/*.test.tsx",
     "typecheck": "tsc -b",
     "start": "node dist/cli.mjs serve",
     "install:local": "node scripts/install.mjs",
@@ -23,6 +23,8 @@
     "radix-ui": "^1.7.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.5.0",
     "yaml": "^2.8.2"
   },

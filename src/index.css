@@ -1046,12 +1046,15 @@ h3 {
     font-size: 11px;
   }
   .file-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     padding: 0 16px 12px;
   }
   .file-toolbar > span {
-    display: none;
+    margin-left: 0;
   }
   .file-toolbar label {
+    grid-column: 1 / -1;
     flex: 1;
     min-width: 0;
   }
@@ -1233,4 +1236,264 @@ h3 {
   overflow-wrap: anywhere;
   font-size: 13px;
   line-height: 1.7;
+}
+
+.skill-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  container-type: inline-size;
+}
+.editor-label code {
+  overflow-wrap: anywhere;
+}
+.markdown-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.editor-modes,
+.format-actions {
+  display: flex;
+  gap: 2px;
+}
+.editor-modes button,
+.format-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  border-radius: 4px;
+  color: var(--muted-foreground);
+}
+.editor-modes button {
+  padding: 0 10px;
+  font-size: 12px;
+}
+.format-actions button {
+  width: 30px;
+}
+.editor-modes button[aria-pressed="true"],
+.markdown-toolbar button:hover:not(:disabled) {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.markdown-toolbar button:disabled {
+  opacity: 0.4;
+}
+.markdown-toolbar button:focus-visible,
+.markdown-scroll:focus-visible,
+.file-list button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.editor-panes {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.editor-split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.editor-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.editor-split .preview-pane {
+  border-left: 1px solid var(--border);
+}
+.pane-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  background: var(--secondary);
+}
+.pane-heading span {
+  font-weight: 400;
+}
+.skill-editor .code-editor {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: var(--background);
+  color: var(--foreground);
+  outline: none;
+  box-shadow: none;
+  overflow: auto;
+}
+.skill-editor .code-editor:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.markdown-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.markdown-document {
+  padding: 20px 24px 32px;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.markdown-document > :first-child {
+  margin-top: 0;
+}
+.markdown-document h1,
+.markdown-document h2,
+.markdown-document h3,
+.markdown-document h4,
+.markdown-document h5,
+.markdown-document h6 {
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 24px 0 12px;
+}
+.markdown-document h1 {
+  font-size: 24px;
+}
+.markdown-document h2 {
+  font-size: 19px;
+}
+.markdown-document h3 {
+  font-size: 16px;
+}
+.markdown-document h4,
+.markdown-document h5,
+.markdown-document h6 {
+  font-size: 13px;
+}
+.markdown-document p,
+.markdown-document ul,
+.markdown-document ol,
+.markdown-document blockquote,
+.markdown-document pre,
+.markdown-document table {
+  margin: 12px 0;
+}
+.markdown-document ul {
+  list-style: disc;
+  padding-left: 22px;
+}
+.markdown-document ol {
+  list-style: decimal;
+  padding-left: 22px;
+}
+.markdown-document li > p {
+  margin: 4px 0;
+}
+.markdown-document blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 16px;
+  color: var(--muted-foreground);
+}
+.markdown-document a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.markdown-document a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.markdown-document code {
+  background: var(--muted);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.markdown-document pre {
+  background: var(--muted);
+  padding: 12px;
+  overflow: auto;
+  border-radius: 4px;
+  line-height: 1.6;
+}
+.markdown-document pre code {
+  padding: 0;
+  background: none;
+}
+.markdown-document table {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.markdown-document th,
+.markdown-document td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+.markdown-document th {
+  background: var(--secondary);
+  font-weight: 600;
+}
+.markdown-document hr {
+  border: 0;
+  height: 1px;
+  background: var(--border);
+  margin: 24px 0;
+}
+.markdown-document .contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}
+.markdown-document input[type="checkbox"] {
+  margin-right: 6px;
+}
+.markdown-metadata {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 16px;
+  margin-bottom: 24px;
+}
+.markdown-metadata h3 {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin: 0 0 8px;
+}
+.markdown-metadata pre {
+  white-space: pre-wrap;
+  margin: 0;
+  font-size: 11px;
+}
+.markdown-placeholder,
+.markdown-image {
+  color: var(--muted-foreground);
+}
+.editor-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+@container (max-width: 600px) {
+  .editor-split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .editor-split .preview-pane {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .markdown-document {
+    padding: 16px;
+  }
+  .pane-heading span {
+    display: none;
+  }
 }
