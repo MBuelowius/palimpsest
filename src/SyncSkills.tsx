@@ -15,6 +15,7 @@ import type { Tool } from "../server/library";
 import type { Harness } from "../server/harnesses";
 import { toolLabel, sourceLabel } from "../shared/harnesses";
 import { HarnessChoice } from "./HarnessChoice";
+import { skillIssueText } from "./skillCopy";
 
 export function SyncSkills({
   harnesses,
@@ -53,7 +54,7 @@ export function SyncSkills({
         preview.plans.filter((p) => selected.includes(p.name)),
         preview.tools,
       );
-      const status = `${result.synced.length} skills synced. ${result.failed.length ? `${result.failed.length} failed; review the errors below.` : "Future edits use the same files in the selected harnesses."}`;
+      const status = `${result.synced.length} ${result.synced.length === 1 ? "skill added" : "skills added"} to your apps. ${result.failed.length ? `${result.failed.length} could not be added; check the errors below.` : "Edit a skill once to update it across these apps."}`;
       setMessage(status);
       setPreview(undefined);
       await onSynced(status);
@@ -87,7 +88,7 @@ export function SyncSkills({
         }}
       >
         <Link2 size={15} />
-        Sync existing skills
+        Bring skills together
       </Button>
       <Dialog
         open={open}
@@ -97,18 +98,17 @@ export function SyncSkills({
       >
         <DialogContent className="sync-dialog">
           <DialogHeader>
-            <DialogTitle>Sync existing skills</DialogTitle>
+            <DialogTitle>Use the same skills across apps</DialogTitle>
             <DialogDescription>
-              Share your personal skill packages with the selected harnesses.
-              Conflicting versions need individual review. Already shared skills
-              keep their folder links.
+              Choose the apps you want to use. We’ll show which skills can be
+              brought together and which versions need a closer look.
             </DialogDescription>
           </DialogHeader>
           <HarnessChoice
             harnesses={harnesses}
             tools={tools}
             disabled={busy}
-            action="Sync with"
+            action="Use in"
             setTools={(tools) => {
               setTools(tools);
               setPreview(undefined);
@@ -127,14 +127,14 @@ export function SyncSkills({
           {preview && (
             <>
               <p className="muted">
-                {selected.length} selected · full packages, including references
-                and scripts. Each change has a backup in Backups.
+                {selected.length} selected. Instructions and supporting files
+                stay together. Previous versions are saved in Backups.
               </p>
               <div className="sync-list">
                 {preview.plans.map((plan) => (
                   <label key={plan.name} className="sync-item">
                     <Checkbox
-                      aria-label={`Sync ${plan.name}`}
+                      aria-label={`Add ${plan.name} to selected apps`}
                       disabled={busy}
                       checked={selected.includes(plan.name)}
                       onCheckedChange={(checked) =>
@@ -160,18 +160,24 @@ export function SyncSkills({
               </div>
               {!preview.plans.length && (
                 <p className="empty">
-                  No skills need syncing to the selected harnesses.
+                  These apps already use the same skills, or the remaining
+                  skills need review.
                 </p>
               )}
               {!!preview.skipped.length && (
-                <details>
-                  <summary>{preview.skipped.length} skills skipped</summary>
+                <section aria-label="Skills not included">
+                  <h3>
+                    {preview.skipped.length}{" "}
+                    {preview.skipped.length === 1 ? "skill" : "skills"} not
+                    included
+                  </h3>
                   {preview.skipped.map((skill) => (
                     <p key={skill.name}>
-                      <strong>{skill.name}</strong>: {skill.reason}
+                      <strong>{skill.name}</strong>:{" "}
+                      {skillIssueText(skill.reason)}
                     </p>
                   ))}
-                </details>
+                </section>
               )}
             </>
           )}
@@ -181,15 +187,17 @@ export function SyncSkills({
                 disabled={busy || !selected.length}
                 onClick={() => void sync()}
               >
-                {busy && <Loader2 size={15} className="spin" />}Sync{" "}
-                {selected.length} skills
+                {busy && <Loader2 size={15} className="spin" />}Add{" "}
+                {selected.length} {selected.length === 1 ? "skill" : "skills"}{" "}
+                to apps
               </Button>
             ) : (
               <Button
                 disabled={busy || !tools.length}
                 onClick={() => void review()}
               >
-                {busy && <Loader2 size={15} className="spin" />}Review sync
+                {busy && <Loader2 size={15} className="spin" />}Find skills to
+                add
               </Button>
             )}
           </DialogFooter>

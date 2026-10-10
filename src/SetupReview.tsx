@@ -64,15 +64,15 @@ export function SetupReview({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="setup-review-dialog">
         <DialogHeader>
-          <DialogTitle>Review skill setup</DialogTitle>
+          <DialogTitle>Improve your skills</DialogTitle>
           <DialogDescription>
-            Review personal skills with an installed agent. Its CLI handles your
-            account and model. Skill paths and reviewed content are sent to that
-            agent’s configured provider. A run may use paid tokens.
+            Get suggestions from Codex or Claude Code. The review uses your
+            existing account, sends the skill content to that app’s provider,
+            and may incur usage charges.
           </DialogDescription>
         </DialogHeader>
         <div className="setup-review-controls">
-          <label htmlFor="review-agent">Agent</label>
+          <label htmlFor="review-agent">Review with</label>
           <select
             id="review-agent"
             value={agent}
@@ -95,26 +95,31 @@ export function SetupReview({
             }
           >
             {running && <Loader2 size={15} className="spin" />}
-            {running ? "Reviewing…" : result ? "Run again" : "Run review"}
+            {running
+              ? "Reviewing…"
+              : result
+                ? "Review again"
+                : "Review my skills"}
           </Button>
         </div>
         <p className="field-hint">
-          Reviews propose changes only. Codex uses its read-only sandbox; Claude
-          uses planning mode with file-reading tools. Plugins and system skills
-          are outside this review.
+          The review suggests changes without editing your files. It covers your
+          personal skills; skills provided by apps or plugins are excluded.
         </p>
-        {loading && <p role="status">Checking installed agents…</p>}
+        {loading && (
+          <p role="status">Checking which app can review your skills…</p>
+        )}
         {!loading && !error && !agents.some((item) => item.executable) && (
           <p>
-            Install Codex or Claude Code and sign in through its CLI, then
-            reopen this review.
+            Install Codex or Claude Code and sign in from its command line app,
+            then reopen this review.
           </p>
         )}
         {running && (
           <p role="status">
-            Your agent is reviewing the current setup. Usually 1–3 minutes;
-            stops after 5 minutes. You can close this dialog and reopen it to
-            see the result.
+            Your app is reviewing your skills. Usually 1–3 minutes; stops after
+            5 minutes. You can close this dialog and reopen it to see the
+            result.
           </p>
         )}
         {error && (
@@ -127,7 +132,8 @@ export function SetupReview({
             <div className="setup-review-controls">
               <p className="field-hint">
                 {result.agent === "codex" ? "Codex" : "Claude Code"} ·{" "}
-                {new Date(result.at).toLocaleString()} · Snapshot at run time
+                {new Date(result.at).toLocaleString()} · Skills as they were
+                when reviewed
               </p>
               <Button
                 variant="outline"
