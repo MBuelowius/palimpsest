@@ -32,7 +32,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -50,15 +49,20 @@ import {
   type FileContent,
   type History,
 } from "./api";
-import type { Tool } from "../server/library";
+import type { Harness, Tool } from "../server/harnesses";
+import { harnessDefinitions } from "../shared/harnesses";
+import { HarnessChoice } from "./HarnessChoice";
 import { cn } from "@/lib/utils";
 
 type View = "library" | "history" | "settings" | "marketplaces";
 const sourceLabel: Record<string, string> = {
-  claude: "Claude",
+  ...Object.fromEntries(
+    harnessDefinitions.map((harness) => [harness.id, harness.name]),
+  ),
   codex: "Codex · legacy folder",
   agents: "Codex · agents folder",
   shared: "Shared library",
+  devin: "Devin",
 };
 const statusLabel: Record<string, string> = {
   local: "Local copy",
@@ -88,33 +92,6 @@ function Empty({ children }: { children: ReactNode }) {
     </div>
   );
 }
-function ToolsChoice({
-  tools,
-  setTools,
-}: {
-  tools: Tool[];
-  setTools: (tools: Tool[]) => void;
-}) {
-  return (
-    <div className="tools-choice">
-      {(["claude", "codex"] as Tool[]).map((tool) => (
-        <label key={tool} className="check-label">
-          <Checkbox
-            aria-label={`Share with ${tool === "claude" ? "Claude" : "Codex"}`}
-            checked={tools.includes(tool)}
-            onCheckedChange={(checked) =>
-              setTools(
-                checked ? [...tools, tool] : tools.filter((t) => t !== tool),
-              )
-            }
-          />
-          {tool === "claude" ? "Claude" : "Codex"}
-        </label>
-      ))}
-    </div>
-  );
-}
-
 export function App() {
   const [inventory, setInventory] = useState<InventoryView>(),
     [view, setView] = useState<View>("library");
@@ -227,7 +204,12 @@ export function App() {
         </nav>
         <div className="sidebar-bottom">
           <span className="local-dot" />
-          Local files, local changes<small>Claude + Codex</small>
+          Local files, local changes
+          <small>
+            {inventory
+              ? `${inventory.harnesses.filter((harness) => harness.detected).length} harnesses detected`
+              : "Detecting harnesses…"}
+          </small>
         </div>
       </aside>
       <main className="main-panel">
@@ -245,7 +227,9 @@ export function App() {
             </p>
           </div>
           <div className="header-actions">
-            {view === "library" && <SyncSkills onSynced={changed} />}
+            {view === "library" && inventory && (
+              <SyncSkills harnesses={inventory.harnesses} onSynced={changed} />
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -256,7 +240,11 @@ export function App() {
               <RefreshCw size={15} className={loading ? "spin" : ""} />
               <span className="refresh-label">Refresh</span>
             </Button>
-            <Button size="sm" onClick={() => setNewOpen(true)}>
+            <Button
+              size="sm"
+              disabled={!inventory}
+              onClick={() => setNewOpen(true)}
+            >
               <Plus size={15} />
               New skill
             </Button>
@@ -308,8 +296,11 @@ export function App() {
                 onChange={(e) => setToolFilter(e.target.value)}
               >
                 <option value="all">All apps</option>
-                <option value="claude">Claude</option>
-                <option value="codex">Codex</option>
+                {inventory?.harnesses.map((harness) => (
+                  <option key={harness.id} value={harness.id}>
+                    {harness.name}
+                  </option>
+                ))}
               </select>
               <select
                 aria-label="Filter skills"
@@ -329,8 +320,7 @@ export function App() {
             <section className="skill-table" aria-label="Skills">
               <div className="table-heading">
                 <span>Skill</span>
-                <span>Claude</span>
-                <span>Codex</span>
+                <span className="app-heading">Harness links</span>
                 <span>Status</span>
                 <span />
               </div>
@@ -362,32 +352,19 @@ export function App() {
                     <span
                       className={cn(
                         "app-cell",
-                        !skill.tools.includes("claude") && "app-off",
+                        !skill.tools.length && "app-off",
                       )}
                     >
-                      {skill.tools.includes("claude") ? (
-                        <>
-                          <Check size={13} />
-                          Available
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </span>
-                    <span
-                      className={cn(
-                        "app-cell",
-                        !skill.tools.includes("codex") && "app-off",
-                      )}
-                    >
-                      {skill.tools.includes("codex") ? (
-                        <>
-                          <Check size={13} />
-                          Available
-                        </>
-                      ) : (
-                        "—"
-                      )}
+                      {skill.tools.length
+                        ? skill.tools
+                            .map(
+                              (tool) =>
+                                harnessDefinitions.find(
+                                  (harness) => harness.id === tool,
+                                )!.name,
+                            )
+                            .join(", ")
+                        : "—"}
                     </span>
                     <Status status={skill.status} />
                     <ChevronRight size={16} className="row-arrow" />
@@ -417,7 +394,12 @@ export function App() {
             )}
           </>
         )}
-        {view === "marketplaces" && <MarketplacesPage onInstalled={refresh} />}
+        {view === "marketplaces" && inventory && (
+          <MarketplacesPage
+            harnesses={inventory.harnesses}
+            onInstalled={refresh}
+          />
+        )}
         {view === "history" && (
           <section className="history-list">
             {!history.length ? (
@@ -459,10 +441,35 @@ export function App() {
             <h2>Shared library</h2>
             <p>Edit one package here; enabled apps read the same files.</p>
             <code>{shorten(inventory.shared)}</code>
+            <h2>Detected harnesses</h2>
+            <p>
+              Checked when the library loads or you press Refresh. Configuration
+              folders can remain after an uninstall.
+            </p>
+            {inventory.harnesses.map((harness) => (
+              <div className="harness-row" key={harness.id}>
+                <div>
+                  <strong>{harness.name}</strong>
+                  <Badge variant="outline">
+                    {harness.detected ? "Detected" : "Not detected"}
+                  </Badge>
+                </div>
+                {!!harness.evidence.length && (
+                  <details>
+                    <summary>Detection details</summary>
+                    {harness.evidence.map((evidence) => (
+                      <p key={evidence.path}>
+                        {evidence.kind}: <code>{shorten(evidence.path)}</code>
+                      </p>
+                    ))}
+                  </details>
+                )}
+              </div>
+            ))}
             <h2>App folders</h2>
             {inventory.roots.map((root) => (
               <div className="location-row" key={root.id}>
-                <strong>{sourceLabel[root.id]}</strong>
+                <strong>{root.label}</strong>
                 <code>{shorten(root.path)}</code>
               </div>
             ))}
@@ -484,23 +491,29 @@ export function App() {
             <p className="locations-note">
               Folder availability does not prove an app has loaded a skill.
               Restart an existing app session to refresh its skill discovery.
-              App-specific instructions still need review before sharing.
+              Some harnesses also discover skills in other apps’ folders. These
+              controls manage the links shown here. App-specific instructions
+              still need review before sharing.
             </p>
           </section>
         )}
       </main>
-      {selected && (
+      {selected && inventory && (
         <SkillDialog
           name={selected}
+          harnesses={inventory.harnesses}
           close={() => setSelected(undefined)}
           changed={changed}
         />
       )}
-      <CreateDialog
-        open={newOpen}
-        close={() => setNewOpen(false)}
-        changed={changed}
-      />
+      {inventory && (
+        <CreateDialog
+          open={newOpen}
+          harnesses={inventory.harnesses}
+          close={() => setNewOpen(false)}
+          changed={changed}
+        />
+      )}
       <Dialog
         open={!!restore}
         onOpenChange={(open) => {
@@ -551,10 +564,12 @@ export function App() {
 
 function SkillDialog({
   name,
+  harnesses,
   close,
   changed,
 }: {
   name: string;
+  harnesses: Harness[];
   close: () => void;
   changed: (message: string) => Promise<void>;
 }) {
@@ -569,7 +584,11 @@ function SkillDialog({
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [plan, setPlan] = useState<Plan>(),
-    [tools, setTools] = useState<Tool[]>(["claude", "codex"]);
+    [tools, setTools] = useState<Tool[]>(() =>
+      harnesses
+        .filter((harness) => harness.detected)
+        .map((harness) => harness.id),
+    );
   const [pending, setPending] = useState<(() => void) | undefined>(),
     [fileLoading, setFileLoading] = useState(false);
   const dirty = !!file && file.content !== draft;
@@ -734,19 +753,17 @@ function SkillDialog({
                     ))}
                   </div>
                 )}
-                <h3>App availability</h3>
+                <h3>App links</h3>
                 <p className="muted">
                   {detail.managed
-                    ? "Both apps read the shared package. Turn off an app without deleting the skill."
+                    ? "Linked apps read the shared package. Remove a link without deleting the skill."
                     : "Share this skill to manage its availability from one place."}
                 </p>
                 <div className="availability">
-                  {(["claude", "codex"] as Tool[]).map((tool) => (
+                  {harnesses.map(({ id: tool, name: label }) => (
                     <div key={tool}>
                       <span>
-                        <strong>
-                          {tool === "claude" ? "Claude" : "Codex"}
-                        </strong>
+                        <strong>{label}</strong>
                         <small>
                           {detail.tools.includes(tool)
                             ? "Folder available"
@@ -1013,7 +1030,12 @@ function SkillDialog({
                 </small>
               </div>
               <div className="share-controls">
-                <ToolsChoice tools={tools} setTools={setTools} />
+                <HarnessChoice
+                  harnesses={harnesses}
+                  tools={tools}
+                  setTools={setTools}
+                  disabled={busy}
+                />
                 <Button
                   ref={shareButton}
                   disabled={busy || dirty || !tools.length}
@@ -1049,7 +1071,11 @@ function SkillDialog({
               Use the {sourceLabel[plan?.source ?? ""]} version as the single
               package for{" "}
               {plan?.tools
-                .map((t) => (t === "claude" ? "Claude" : "Codex"))
+                .map(
+                  (tool) =>
+                    harnessDefinitions.find((harness) => harness.id === tool)!
+                      .name,
+                )
                 .join(" and ")}
               .
             </DialogDescription>
@@ -1140,19 +1166,33 @@ function SkillDialog({
 
 function CreateDialog({
   open,
+  harnesses,
   close,
   changed,
 }: {
   open: boolean;
+  harnesses: Harness[];
   close: () => void;
   changed: (message: string) => Promise<void>;
 }) {
   const [name, setName] = useState(""),
     [description, setDescription] = useState(""),
     [body, setBody] = useState(""),
-    [tools, setTools] = useState<Tool[]>(["claude", "codex"]),
+    [tools, setTools] = useState<Tool[]>(() =>
+      harnesses
+        .filter((harness) => harness.detected)
+        .map((harness) => harness.id),
+    ),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  useEffect(() => {
+    if (open)
+      setTools(
+        harnesses
+          .filter((harness) => harness.detected)
+          .map((harness) => harness.id),
+      );
+  }, [open, harnesses]);
   return (
     <Dialog
       open={open}
@@ -1225,7 +1265,12 @@ function CreateDialog({
             required
           />
           <label className="field-label">Available in</label>
-          <ToolsChoice tools={tools} setTools={setTools} />
+          <HarnessChoice
+            harnesses={harnesses}
+            tools={tools}
+            setTools={setTools}
+            disabled={busy}
+          />
           {error && (
             <p className="form-error" role="alert">
               {error}

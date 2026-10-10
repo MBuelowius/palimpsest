@@ -10,7 +10,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -26,10 +25,14 @@ import {
   type MarketplacePreview,
 } from "./api";
 import type { Tool } from "../server/library";
+import type { Harness } from "../server/harnesses";
+import { HarnessChoice } from "./HarnessChoice";
 
 export function MarketplacesPage({
+  harnesses,
   onInstalled,
 }: {
+  harnesses: Harness[];
   onInstalled: () => Promise<void>;
 }) {
   const [sources, setSources] = useState<Marketplace[]>([]);
@@ -43,7 +46,11 @@ export function MarketplacesPage({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<MarketplacePreview | null>(null);
-  const [tools, setTools] = useState<Tool[]>(["claude", "codex"]);
+  const [tools, setTools] = useState<Tool[]>(() =>
+    harnesses
+      .filter((harness) => harness.detected)
+      .map((harness) => harness.id),
+  );
   useEffect(() => {
     api
       .marketplaces()
@@ -289,6 +296,11 @@ export function MarketplacesPage({
                     onClick={async () => {
                       setError("");
                       try {
+                        setTools(
+                          harnesses
+                            .filter((harness) => harness.detected)
+                            .map((harness) => harness.id),
+                        );
                         setPreview(
                           await api.marketplacePreview(current.id, skill.id),
                         );
@@ -414,24 +426,13 @@ export function MarketplacesPage({
                   ))}
                 </ul>
               </details>
-              <div className="tools-choice">
-                {(["claude", "codex"] as const).map((tool) => (
-                  <label className="check-label" key={tool}>
-                    <Checkbox
-                      aria-label={"Install for " + tool}
-                      checked={tools.includes(tool)}
-                      onCheckedChange={(checked) =>
-                        setTools((current) =>
-                          checked
-                            ? [...current, tool]
-                            : current.filter((t) => t !== tool),
-                        )
-                      }
-                    />
-                    {tool === "claude" ? "Claude" : "Codex"}
-                  </label>
-                ))}
-              </div>
+              <HarnessChoice
+                harnesses={harnesses}
+                tools={tools}
+                setTools={setTools}
+                disabled={busy}
+                action="Install for"
+              />
               {error && (
                 <p role="alert" className="form-error">
                   {error}
