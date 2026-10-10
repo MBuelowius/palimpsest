@@ -63,6 +63,13 @@ test("review delegates to installed CLIs with read-only controls and stdin conte
       assert.ok(invocation.args.includes("--strict-mcp-config"));
     }
   }
+  const modelReview = await runReview(library, "codex", {
+    model: "model-next",
+    context: "Compare behavior for our current target models",
+  });
+  const modelInvocation = JSON.parse(modelReview.report);
+  assert.deepEqual(modelInvocation.args.slice(-2), ["--model", "model-next"]);
+  assert.match(modelInvocation.input, /current target models/);
   assert.throws(() => runReview(library, "invalid" as "codex"), /Choose Codex/);
   fakeAgent("codex", "process.stderr.write('Sign in first'); process.exit(1);");
   await assert.rejects(runReview(library, "codex"), /Sign in first/);
@@ -95,6 +102,43 @@ test("review delegates to installed CLIs with read-only controls and stdin conte
     },
     body: '{"agent":"codex"}',
   };
+  const preferences = {
+    agent: "codex",
+    model: "model-next",
+    context: "Target model workflows",
+    schedule: "off",
+    onChange: false,
+  };
+  assert.equal(
+    (
+      await fetch(url + "/api/review/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(preferences),
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await fetch(url + "/api/review/settings", {
+        ...options,
+        method: "PUT",
+        body: JSON.stringify({ ...preferences, onChange: "yes" }),
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await fetch(url + "/api/review/settings", {
+        ...options,
+        method: "PUT",
+        body: JSON.stringify(preferences),
+      })
+    ).status,
+    200,
+  );
   const responses = await Promise.all([
     fetch(url + "/api/review", options),
     fetch(url + "/api/review", options),
@@ -109,4 +153,27 @@ test("review delegates to installed CLIs with read-only controls and stdin conte
     "Reviewed",
   );
   assert.equal((await fetch(url + "/api/review", options)).status, 200);
+  const saved = (await (await fetch(url + "/api/review")).json()) as {
+    running: boolean;
+    reports: { id: string; stale: boolean; model: string }[];
+    settings: typeof preferences;
+  };
+  assert.equal(saved.running, false);
+  assert.equal(saved.reports.length, 2);
+  assert.equal(saved.reports[0].stale, false);
+  assert.equal(saved.reports[0].model, "model-next");
+  assert.deepEqual(saved.settings, preferences);
+  const stored = (await (
+    await fetch(url + "/api/review/reports/" + saved.reports[0].id)
+  ).json()) as { report: string; snapshot: { skills: { name: string }[] } };
+  assert.equal(stored.report, "Reviewed");
+  assert.equal(stored.snapshot.skills[0].name, "example");
+  assert.equal(
+    (
+      await fetch(
+        url + "/api/review/reports/00000000-0000-0000-0000-000000000000",
+      )
+    ).status,
+    404,
+  );
 });

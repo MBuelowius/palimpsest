@@ -15,7 +15,13 @@ This is an early project. Review previews before applying changes and keep an in
 
 Palimpsest does not execute skill scripts. A tool consuming an installed skill may execute them; inspect third-party instructions and files before enabling a package.
 
-Use **Review setup** to ask an installed Codex or Claude Code CLI to inspect your personal skills and propose changes. Palimpsest passes the inventory to the CLI and displays its report; the existing harness handles authentication, models, and tool use. Codex runs with its read-only sandbox; Claude runs in planning mode with only file-reading tools and no MCP servers. The review excludes app-managed plugins, synced skills, and system skills. Skill paths and inspected content go to the agent's configured provider and may use paid tokens. Reports stay in the current browser session; copy a report before reloading.
+Use **Review setup** to ask an installed Codex or Claude Code CLI which personal skills to keep, refine, combine, or consider retiring. Reviews check trigger overlap, stale commands, excessive instructions, and guidance that needs adapting for newer models. The report cites evidence and proposes representative comparisons with no skill, the current skill, and a proposed revision; it does not measure actual usage or run those evaluations. No skills are edited or deleted by a review.
+
+The existing harness handles authentication and tool use. Choose a reviewer model or leave it empty to use the CLI configuration (the actual default model is unverified), and describe the models and workflows your skills should support. Codex runs with its read-only sandbox and inherited CLI configuration; Claude runs in planning mode with only file-reading tools and no MCP servers. The prompt restricts inspection to inventoried packages. The review excludes app-managed plugins, synced skills, and system skills. Skill paths and inspected content go to the agent's configured provider and may use paid tokens.
+
+The last ten reports persist locally. Each records its starting library snapshot, reviewer, requested model, target context, and trigger. Reports are marked outdated after library or model-context changes. Files can change while an agent inspects them; inspect current contents before applying a proposal.
+
+Automatic reviews are off initially. In **Review setup**, enable a review every 7 or 30 days, after library or model-context changes, or both. Saving enabled triggers authorizes unattended runs through the selected provider. The server checks every minute while running. Changes must remain stable for 60 seconds; automatic attempts are limited to one per 24 hours, including failed runs. The change trigger starts with the current library as its baseline; a recurring schedule starts its interval when enabled. Manual reviews can retry immediately. A cross-process lock prevents overlapping CLI/server reviews and expires ten minutes after an interrupted process stops updating it. Empty inventories and inventories with scan errors are skipped automatically.
 
 ## Run from source
 
@@ -65,12 +71,19 @@ palimpsest list
 palimpsest inspect example
 palimpsest review --agent codex
 palimpsest review --agent claude
+palimpsest review configure --agent codex --schedule weekly --on-change on
+palimpsest review configure --model <supported-model-id> --context "Target models and workflows"
+palimpsest review --due
+palimpsest review history
+palimpsest review report <review-id>
 palimpsest share example --source claude
 palimpsest share example --source claude --apply
 palimpsest history
 ```
 
 `share`, `share-identical`, and `marketplace install` preview changes unless `--apply` is supplied. `enable`, `disable`, and `restore` apply immediately. Restoring is limited to the latest operation and refuses to overwrite later external edits.
+
+`review --due` uses saved preferences and runs only if a review is due. An OS scheduler can invoke it every minute without keeping the web server open. The first invocation records the observed snapshot; a later invocation establishes the 60-second stability window. This command does not install an OS schedule. Use `review configure --schedule off --on-change off` to stop automatic reviews. Review preferences, reports, and errors are private files under the selected home's state directory.
 
 Sharing, syncing, and marketplace installation default to the detected harnesses. Use `--tools cursor,gemini,opencode` to override detection, or choose harnesses manually in the UI. Configuration folders may remain after an uninstall, so detection is evidence of a local setup rather than a runtime health check. Harnesses can also discover skills in other apps' folders; Palimpsest manages the explicit links shown in its library.
 
