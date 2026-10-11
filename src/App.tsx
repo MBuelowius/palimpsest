@@ -1,12 +1,16 @@
 import { MarketplacesPage } from "./Marketplaces";
 import { SetupReview } from "./SetupReview";
-import { SyncSkills } from "./SyncSkills";
+import { SettingsPage } from "./SettingsPage";
 import { SkillEditor } from "./SkillEditor";
 import {
   useEffect,
   useState,
   useCallback,
   useRef,
+  useImperativeHandle,
+  lazy,
+  Suspense,
+  type Ref,
   type ReactNode,
 } from "react";
 import {
@@ -22,18 +26,19 @@ import {
   Check,
   ChevronRight,
   FileText,
-  Terminal,
   ArrowLeftRight,
+  ArrowLeft,
   Save,
   Undo2,
   X,
   Loader2,
+  Table2,
+  List,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -42,7 +47,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   api,
   type InventoryView,
@@ -52,35 +56,24 @@ import {
   type History,
 } from "./api";
 import type { Harness, Tool } from "../server/harnesses";
-import {
-  harnesses as supportedHarnesses,
-  toolLabel,
-  sourceLabel,
-} from "../shared/harnesses";
+import { toolLabel, sourceLabel } from "../shared/harnesses";
 import { HarnessChoice } from "./HarnessChoice";
 import { cn } from "@/lib/utils";
+import { changeDescription, skillIssueText } from "./skillCopy";
 
+const MarkdownContent = lazy(() =>
+  import("./MarkdownContent").then((module) => ({
+    default: module.MarkdownContent,
+  })),
+);
+const MarkdownEditor = lazy(() =>
+  import("./MarkdownEditor").then((module) => ({
+    default: module.MarkdownEditor,
+  })),
+);
 type View = "library" | "history" | "settings" | "marketplaces";
-const statusLabel: Record<string, string> = {
-  local: "Local copy",
-  identical: "Ready to share",
-  conflict: "Versions differ",
-  shared: "Shared",
-};
-const shorten = (p: string) => p.replace(/^\/Users\/[^/]+/, "~");
+type SkillNavigation = { requestLeave: (action: () => void) => void };
 
-function Status({ status }: { status: string }) {
-  return (
-    <Badge variant="outline" className="status-badge">
-      {status === "shared" ? (
-        <Link2 size={12} />
-      ) : status === "conflict" ? (
-        <AlertCircle size={12} />
-      ) : null}
-      {statusLabel[status]}
-    </Badge>
-  );
-}
 function Empty({ children }: { children: ReactNode }) {
   return (
     <div className="empty">
@@ -90,12 +83,17 @@ function Empty({ children }: { children: ReactNode }) {
   );
 }
 export function App() {
+  const pageHeading = useRef<HTMLHeadingElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const skillNavigation = useRef<SkillNavigation>(null);
+  const [skillBusy, setSkillBusy] = useState(false);
+  const [layout, setLayout] = useState<"table" | "list">("table");
   const [setupReviewOpen, setSetupReviewOpen] = useState(false);
   const [inventory, setInventory] = useState<InventoryView>(),
     [view, setView] = useState<View>("library");
   const [search, setSearch] = useState(""),
     [toolFilter, setToolFilter] = useState("all"),
-    [statusFilter, setStatusFilter] = useState("all");
+    [attentionOnly, setAttentionOnly] = useState(false);
   const [selected, setSelected] = useState<string>(),
     [newOpen, setNewOpen] = useState(false);
   const [error, setError] = useState(""),
@@ -129,30 +127,42 @@ export function App() {
   };
   const skills =
     inventory?.skills.filter((skill) => {
-      if (
-        statusFilter === "review" &&
-        skill.status !== "conflict" &&
-        !skill.issues.length
-      )
+      if (attentionOnly && skill.status !== "conflict" && !skill.issues.length)
         return false;
       if (toolFilter !== "all" && !skill.tools.includes(toolFilter as Tool))
         return false;
-      if (
-        statusFilter !== "all" &&
-        statusFilter !== "review" &&
-        skill.status !== statusFilter
-      )
-        return false;
-      return `${skill.name} ${skill.description}`
+      return `${skill.title} ${skill.name} ${skill.description}`
         .toLowerCase()
-        .includes(search.toLowerCase());
+        .includes(search.trim().toLowerCase());
     }) ?? [];
   const title = {
     library: "Your skills",
     history: "Backups",
-    settings: "Harnesses & locations",
-    marketplaces: "Marketplaces",
+    settings: "Settings",
+    marketplaces: "Discover skills",
   }[view];
+  const filtersActive =
+    search.trim() !== "" || toolFilter !== "all" || attentionOnly;
+  function clearFilters() {
+    setSearch("");
+    setToolFilter("all");
+    setAttentionOnly(false);
+  }
+  function navigate(action: () => void) {
+    if (skillNavigation.current) skillNavigation.current.requestLeave(action);
+    else action();
+  }
+  function changeView(next: View) {
+    navigate(() => {
+      setSelected(undefined);
+      setView(next);
+      setNotice("");
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0 });
+        pageHeading.current?.focus({ preventScroll: true });
+      });
+    });
+  }
   const latest = history.find((h) => h.status === "committed")?.id;
   return (
     <div className="app-shell">
@@ -163,7 +173,7 @@ export function App() {
           href="#"
           onClick={(event) => {
             event.preventDefault();
-            setView("library");
+            changeView("library");
           }}
         >
           <span>Palimpsest</span>
@@ -171,7 +181,8 @@ export function App() {
         <nav aria-label="Library navigation">
           <button
             className={cn("nav-item", view === "library" && "nav-active")}
-            onClick={() => setView("library")}
+            onClick={() => changeView("library")}
+            disabled={skillBusy}
             aria-current={view === "library" ? "page" : undefined}
           >
             <Folder size={17} />
@@ -180,71 +191,73 @@ export function App() {
           </button>
           <button
             className={cn("nav-item", view === "marketplaces" && "nav-active")}
-            onClick={() => setView("marketplaces")}
+            onClick={() => changeView("marketplaces")}
+            disabled={skillBusy}
+            aria-current={view === "marketplaces" ? "page" : undefined}
           >
             <Store size={17} />
-            <span>Marketplaces</span>
+            <span>Discover</span>
           </button>
           <div className="nav-divider" />
           <button
             className={cn("nav-item", view === "history" && "nav-active")}
-            onClick={() => setView("history")}
+            onClick={() => changeView("history")}
+            disabled={skillBusy}
+            aria-current={view === "history" ? "page" : undefined}
           >
             <HistoryIcon size={17} />
             <span>Backups</span>
           </button>
           <button
             className={cn("nav-item", view === "settings" && "nav-active")}
-            onClick={() => setView("settings")}
+            onClick={() => changeView("settings")}
+            disabled={skillBusy}
+            aria-current={view === "settings" ? "page" : undefined}
           >
             <Settings2 size={17} />
-            <span>Harnesses</span>
+            <span>Settings</span>
           </button>
         </nav>
       </aside>
-      <main className="main-panel">
+      <main
+        className="main-panel"
+        data-skill-open={view === "library" && !!selected}
+      >
         <header className="page-header">
           <div>
-            <h1>{title}</h1>
+            <h1 ref={pageHeading} tabIndex={-1}>
+              {title}
+            </h1>
             <p>
               {view === "history"
-                ? "Every change has a backup. Restore the latest operation first."
+                ? "Recover an earlier version of a skill or undo an app change."
                 : view === "settings"
-                  ? "One shared package, linked to the harnesses you choose."
+                  ? "Choose where to use your skills and keep them up to date."
                   : view === "marketplaces"
-                    ? "Browse and install skills from GitHub."
-                    : `${inventory?.counts.total ?? 0} skills on this Mac`}
+                    ? "Find a skill for the task you want to do."
+                    : "Search by name or what you want to do."}
             </p>
           </div>
           <div className="header-actions">
-            {view === "library" && inventory && (
-              <SyncSkills harnesses={inventory.harnesses} onSynced={changed} />
-            )}
             <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSetupReviewOpen(true)}
-            >
-              Review setup
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="icon"
               onClick={() => void refresh()}
-              disabled={loading}
+              disabled={loading || skillBusy}
               aria-label="Refresh library"
+              title="Refresh library"
             >
               <RefreshCw size={15} className={loading ? "spin" : ""} />
-              <span className="refresh-label">Refresh</span>
             </Button>
-            <Button
-              size="sm"
-              disabled={!inventory}
-              onClick={() => setNewOpen(true)}
-            >
-              <Plus size={15} />
-              New skill
-            </Button>
+            {view === "library" && (
+              <Button
+                disabled={!inventory || skillBusy}
+                onClick={() => navigate(() => setNewOpen(true))}
+              >
+                <Plus size={15} />
+                New skill
+              </Button>
+            )}
           </div>
         </header>
         {error && (
@@ -275,115 +288,148 @@ export function App() {
             </Button>
           </div>
         )}
-        {view === "library" && (
-          <>
-            <div className="toolbar">
-              <div className="search-field">
-                <Search size={17} />
-                <Input
-                  aria-label="Search skills"
-                  placeholder="Search skills or descriptions…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
+        {view === "library" && !selected && (
+          <div className="library-layout" data-layout={layout}>
+            <section className="skills-browser" aria-label="Browse skills">
+              <div className="library-toolbar">
+                <div className="search-field">
+                  <Search size={17} />
+                  <Input
+                    ref={searchInput}
+                    aria-label="Search skills"
+                    placeholder="Search skills…"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                  />
+                </div>
+                <div
+                  className="layout-choice"
+                  role="group"
+                  aria-label="Skill layout"
+                >
+                  <Button
+                    variant={layout === "table" ? "secondary" : "ghost"}
+                    aria-pressed={layout === "table"}
+                    onClick={() => setLayout("table")}
+                  >
+                    <Table2 size={16} />
+                    Table
+                  </Button>
+                  <Button
+                    variant={layout === "list" ? "secondary" : "ghost"}
+                    aria-pressed={layout === "list"}
+                    onClick={() => setLayout("list")}
+                  >
+                    <List size={16} />
+                    List
+                  </Button>
+                </div>
               </div>
-              <select
-                aria-label="Filter by harness"
-                value={toolFilter}
-                onChange={(e) => setToolFilter(e.target.value)}
-              >
-                <option value="all">All harnesses</option>
-                {inventory?.harnesses.map((harness) => (
-                  <option key={harness.id} value={harness.id}>
-                    {harness.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Filter skills"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">All skills</option>
-                <option value="review">Needs review</option>
-                {Object.entries(statusLabel).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              <span className="result-count">{skills.length} skills</span>
-            </div>
-            <section className="skill-table" aria-label="Skills">
-              <div className="table-heading">
-                <span>Skill</span>
-                <span>Harness folders</span>
-                <span>Status</span>
-                <span />
+              <div className="library-results">
+                <p className="muted" role="status">
+                  {loading && !inventory
+                    ? "Reading your library…"
+                    : `${skills.length} ${skills.length === 1 ? "skill" : "skills"}`}
+                </p>
+                {filtersActive && (
+                  <Button variant="ghost" size="sm" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
+                )}
               </div>
-              {loading && !inventory ? (
-                <Empty>Reading your skill folders…</Empty>
-              ) : !skills.length ? (
-                <Empty>
-                  {search
-                    ? "No skills match this search."
-                    : "No skills match these filters."}
-                </Empty>
-              ) : (
-                skills.map((skill) => (
+              {(toolFilter !== "all" || attentionOnly) && (
+                <p className="browse-context">
+                  {attentionOnly
+                    ? "Skills needing review"
+                    : `${toolLabel[toolFilter as Tool]} skills`}
+                </p>
+              )}
+              <section
+                className={layout === "table" ? "skill-table" : "skill-list"}
+                aria-label="Skills"
+              >
+                {layout === "table" && (
+                  <div className="table-heading" aria-hidden="true">
+                    <span>Skill</span>
+                    <span>Added to apps</span>
+                    <span />
+                  </div>
+                )}
+                {skills.map((skill) => (
                   <button
-                    className="skill-row"
+                    className={
+                      layout === "table" ? "skill-row" : "skill-choice"
+                    }
                     key={skill.name}
-                    onClick={() => setSelected(skill.name)}
+                    onClick={() => {
+                      setSelected(skill.name);
+                      setNotice("");
+                    }}
                     aria-label={`Open ${skill.name}`}
+                    data-skill-name={skill.name}
+                    aria-describedby={`skill-description-${skill.name}`}
                   >
                     <span className="skill-name">
-                      <span>
-                        <strong>{skill.name}</strong>
-                        <small>
-                          {skill.description ||
-                            "No description. Open to review the metadata."}
-                        </small>
+                      <strong>{skill.title}</strong>
+                      <small id={`skill-description-${skill.name}`}>
+                        {skill.description || "No description yet."}
+                      </small>
+                    </span>
+                    {layout === "table" && (
+                      <span className="skill-apps">
+                        {skill.tools.length
+                          ? skill.tools
+                              .map((tool) => toolLabel[tool])
+                              .join(", ")
+                          : "Not added to an app yet"}
                       </span>
-                    </span>
-                    <span className="harness-tags">
-                      {skill.tools.length ? (
-                        skill.tools.map((tool) => (
-                          <span key={tool} className="harness-tag">
-                            {toolLabel[tool]}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="muted">Library only</span>
-                      )}
-                    </span>
-                    <Status status={skill.status} />
+                    )}
                     <ChevronRight size={16} className="row-arrow" />
                   </button>
-                ))
+                ))}
+                {!skills.length && (
+                  <Empty>
+                    {loading && !inventory
+                      ? "Reading your skills…"
+                      : inventory?.counts.total === 0
+                        ? "Create a skill or find one in Discover to get started."
+                        : "No matching skills. Try another search."}
+                  </Empty>
+                )}
+              </section>
+              {!!inventory?.scanIssues.length && (
+                <p className="muted">
+                  Some folders could not be read.{" "}
+                  <button
+                    className="text-action"
+                    onClick={() => changeView("settings")}
+                  >
+                    View in Settings
+                  </button>
+                </p>
               )}
             </section>
-            <div className="table-footnote">
-              <Terminal size={14} />
-              <span>
-                Personal skill folders only. App-managed plugins, synced skills,
-                system skills, and trash stay with their apps.
-              </span>
-            </div>
-            {!!inventory?.scanIssues.length && (
-              <div className="message error">
-                <AlertCircle size={16} />
-                <details>
-                  <summary>
-                    {inventory.scanIssues.length} folders could not be read
-                  </summary>
-                  {inventory.scanIssues.map((issue) => (
-                    <p key={issue}>{shorten(issue)}</p>
-                  ))}
-                </details>
-              </div>
-            )}
-          </>
+          </div>
+        )}
+        {view === "library" && selected && inventory && (
+          <SkillPage
+            key={selected}
+            ref={skillNavigation}
+            name={selected}
+            harnesses={inventory.harnesses}
+            changed={changed}
+            onBusyChange={setSkillBusy}
+            close={() => {
+              setSelected(undefined);
+              setNotice("");
+              requestAnimationFrame(() => {
+                const target = document.querySelector<HTMLButtonElement>(
+                  `[data-skill-name="${CSS.escape(selected)}"]`,
+                );
+                (target ?? searchInput.current)?.focus();
+              });
+            }}
+          />
         )}
         {view === "marketplaces" && inventory && (
           <MarketplacesPage
@@ -395,8 +441,8 @@ export function App() {
           <section className="history-list">
             {!history.length ? (
               <Empty>
-                No changes yet. Backups appear here after your first edit or
-                shared skill.
+                No backups yet. Your previous version is saved when you edit a
+                skill or change its apps.
               </Empty>
             ) : (
               history.map((operation) => (
@@ -406,10 +452,17 @@ export function App() {
                   </span>
                   <div>
                     <strong>{operation.name}</strong>
-                    <p>{operation.label}</p>
+                    <p>{changeDescription(operation.label)}</p>
                     <small>
                       {new Date(operation.at).toLocaleString()} ·{" "}
-                      {operation.status}
+                      {
+                        {
+                          pending: "Change in progress",
+                          committed: "Backup saved",
+                          restored: "Restored",
+                          failed: "Change failed",
+                        }[operation.status]
+                      }
                     </small>
                   </div>
                   {operation.id === latest && (
@@ -428,106 +481,26 @@ export function App() {
           </section>
         )}
         {view === "settings" && inventory && (
-          <section className="locations">
-            <h2>Shared library</h2>
-            <p>Edit one package here; enabled apps read the same files.</p>
-            <code>{shorten(inventory.shared)}</code>
-            <h2>Harness detection and folders</h2>
-            <p>
-              Detection is refreshed with the library. Configuration folders can
-              remain after an uninstall.
-            </p>
-            <p>
-              Manage personal skills for each harness. Counts show files in
-              these folders, not installed apps or loaded skills.
-            </p>
-            <div className="harness-locations">
-              {supportedHarnesses.map((harness) => {
-                const roots = inventory.roots.filter(
-                  (root) => root.tool === harness.id,
-                );
-                const count = inventory.skills.filter((skill) =>
-                  skill.tools.includes(harness.id),
-                ).length;
-                return (
-                  <div className="harness-location" key={harness.id}>
-                    <div>
-                      <strong>{harness.label}</strong>
-                      <Badge variant="outline">
-                        {inventory.harnesses.find(
-                          (item) => item.id === harness.id,
-                        )!.detected
-                          ? "Detected"
-                          : "Not detected"}
-                      </Badge>
-                      <span>
-                        {count} {count === 1 ? "skill" : "skills"}
-                      </span>
-                    </div>
-                    {inventory.harnesses
-                      .find((item) => item.id === harness.id)!
-                      .evidence.map((evidence) => (
-                        <p className="harness-evidence" key={evidence.path}>
-                          {evidence.kind}: <code>{shorten(evidence.path)}</code>
-                        </p>
-                      ))}
-                    {roots.map((root) => (
-                      <code key={root.id}>{shorten(root.path)}</code>
-                    ))}
-                    <button
-                      className="harness-browse"
-                      aria-label={`Browse ${harness.label} skills`}
-                      onClick={() => {
-                        setToolFilter(harness.id);
-                        setStatusFilter("all");
-                        setSearch("");
-                        setView("library");
-                      }}
-                    >
-                      Browse skills <ChevronRight size={14} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="locations-note">
-              The common ~/.agents/skills folder is also read by several
-              harnesses. Harness folder links do not control those discovery
-              rules.
-            </p>
-            <h2>Backups</h2>
-            <p>
-              Original files are retained before each change. Restores refuse to
-              overwrite newer edits.
-            </p>
-            <code>{shorten(inventory.state)}/history</code>
-            <h2>Command line</h2>
-            <p>The CLI uses this same library and backup history.</p>
-            <code>
-              palimpsest list
-              <br />
-              palimpsest ui
-              <br />
-              palimpsest share-identical
-            </code>
-            <p className="locations-note">
-              Folder availability does not prove an app has loaded a skill.
-              Restart an existing app session to refresh its skill discovery.
-              Some harnesses also discover skills in other apps’ folders. These
-              controls manage the links shown here. App-specific instructions
-              still need review before sharing.
-            </p>
-          </section>
+          <SettingsPage
+            inventory={inventory}
+            onChanged={changed}
+            onBrowse={(tool) => {
+              setToolFilter(tool);
+              setAttentionOnly(false);
+              setSearch("");
+              changeView("library");
+            }}
+            onReviewSkills={() => {
+              setSearch("");
+              setToolFilter("all");
+              setAttentionOnly(true);
+              changeView("library");
+            }}
+            onReviewSetup={() => setSetupReviewOpen(true)}
+            onBackups={() => changeView("history")}
+          />
         )}
       </main>
-      {selected && inventory && (
-        <SkillDialog
-          name={selected}
-          harnesses={inventory.harnesses}
-          close={() => setSelected(undefined)}
-          changed={changed}
-        />
-      )}
       {inventory && (
         <CreateDialog
           open={newOpen}
@@ -546,8 +519,9 @@ export function App() {
           <DialogHeader>
             <DialogTitle>Restore {restore?.name}?</DialogTitle>
             <DialogDescription>
-              Return the files and app links to their state before “
-              {restore?.label}”. Newer edits will block the restore.
+              Undo “{restore && changeDescription(restore.label)}” for this
+              skill. If it has changed since then, the restore will stop to
+              protect your newer edits.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -566,7 +540,9 @@ export function App() {
                 try {
                   await api.restore(restore.id);
                   setRestore(undefined);
-                  await changed("Original files and app links restored.");
+                  await changed(
+                    "The previous skill version and app choices were restored.",
+                  );
                 } catch (e) {
                   setError((e as Error).message);
                   setRestore(undefined);
@@ -584,18 +560,30 @@ export function App() {
   );
 }
 
-function SkillDialog({
+function SkillPage({
   name,
   harnesses,
   close,
   changed,
+  ref,
+  onBusyChange,
 }: {
   name: string;
   harnesses: Harness[];
   close: () => void;
   changed: (message: string) => Promise<void>;
+  ref: Ref<SkillNavigation>;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const shareButton = useRef<HTMLButtonElement>(null);
+  const sharingTitle = useRef<HTMLHeadingElement>(null);
+  const readerTitle = useRef<HTMLHeadingElement>(null);
+  const keepEditing = useRef<HTMLButtonElement>(null);
+  const editor = useRef<HTMLTextAreaElement>(null);
+  const editorRoot = useRef<HTMLDivElement>(null);
+  const [editorMode, setEditorMode] = useState<"rendered" | "source">(
+    "rendered",
+  );
   const [detail, setDetail] = useState<Detail>(),
     [tab, setTab] = useState("overview"),
     [source, setSource] = useState("");
@@ -614,6 +602,19 @@ function SkillDialog({
   const [pending, setPending] = useState<(() => void) | undefined>(),
     [fileLoading, setFileLoading] = useState(false);
   const dirty = !!file && file.content !== draft;
+  useImperativeHandle(ref, () => ({ requestLeave: guard }));
+  useEffect(() => {
+    onBusyChange(busy);
+  }, [busy, onBusyChange]);
+  useEffect(() => {
+    readerTitle.current?.focus();
+  }, [name]);
+  useEffect(() => {
+    if (pending) keepEditing.current?.focus();
+  }, [pending]);
+  useEffect(() => {
+    if (plan) sharingTitle.current?.focus();
+  }, [plan]);
   const refresh = useCallback(async () => {
     const next = await api.detail(name);
     setDetail(next);
@@ -685,6 +686,7 @@ function SkillDialog({
     return () => window.removeEventListener("beforeunload", prevent);
   }, [dirty]);
   function guard(action: () => void) {
+    if (busy) return;
     if (dirty) setPending(() => action);
     else action();
   }
@@ -695,8 +697,10 @@ function SkillDialog({
       await action();
       await refresh();
       await changed(message);
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -713,423 +717,594 @@ function SkillDialog({
       setBusy(false);
     }
   }
+  async function changeAppLink(tool: Tool, enabled: boolean) {
+    if (!detail) return;
+    const updated = await run(
+      () => api.enabled(name, tool, enabled, detail.revision),
+      `${name} ${enabled ? "added to" : "removed from"} ${toolLabel[tool]}.`,
+    );
+    if (updated) {
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLButtonElement>(
+            `[data-app-action="${tool}-${enabled ? "remove" : "add"}"]`,
+          )
+          ?.focus();
+      });
+    }
+  }
   const chosen = detail?.variants.find((v) => v.id === source);
+  const editableVersions =
+    detail?.variants.filter(
+      (variant) => detail.status !== "shared" || variant.tool === "shared",
+    ) ?? [];
+  const otherApps = harnesses.filter(
+    (harness) => !detail?.tools.includes(harness.id),
+  );
+  const isMarkdown = /\.(md|markdown|mdown)$/i.test(fileName);
   return (
-    <>
-      <Dialog
-        open
-        onOpenChange={(open) => {
-          if (!open && !busy) guard(close);
-        }}
-      >
-        <DialogContent
-          className="skill-dialog"
-          onInteractOutside={(event) => {
-            if (dirty || busy) event.preventDefault();
-          }}
+    <section className="skill-reader" aria-labelledby="skill-title">
+      {pending && (
+        <section
+          className="unsaved-warning"
+          role="alert"
+          aria-labelledby="unsaved-title"
         >
-          <DialogHeader className="detail-header">
-            <div className="detail-title">
-              <span className="skill-icon">
-                <FileText size={21} />
-              </span>
-              <div>
-                <DialogTitle>{name}</DialogTitle>
-                <DialogDescription>
-                  {detail
-                    ? `${detail.variants.length} location${detail.variants.length === 1 ? "" : "s"} · ${chosen?.files ?? 0} files in selected version`
-                    : "Reading skill…"}
-                </DialogDescription>
-              </div>
-            </div>
-            {detail && <Status status={detail.status} />}
-          </DialogHeader>
-          {error && (
-            <div className="message error" role="alert">
-              <AlertCircle size={16} />
-              <span>{error}</span>
-            </div>
-          )}
-          {!detail ? (
-            <Empty>Reading skill…</Empty>
-          ) : (
-            <Tabs
-              value={tab}
-              onValueChange={(value) => guard(() => setTab(value))}
-              className="detail-tabs"
+          <h3 id="unsaved-title">Unsaved changes</h3>
+          <p>Save your edits to {fileName} before leaving, or discard them.</p>
+          <div className="inline-actions">
+            <Button
+              ref={keepEditing}
+              variant="outline"
+              onClick={() => {
+                setPending(undefined);
+                if (editorMode === "source" || !isMarkdown)
+                  editor.current?.focus();
+                else
+                  editorRoot.current
+                    ?.querySelector<HTMLElement>('[contenteditable="true"]')
+                    ?.focus();
+              }}
             >
-              <TabsList>
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="files">
-                  Files {dirty && <span className="unsaved-dot" />}
-                </TabsTrigger>
-                <TabsTrigger value="compare">Compare</TabsTrigger>
-                <TabsTrigger value="sharing">Sharing</TabsTrigger>
-              </TabsList>
-              <TabsContent value="overview" className="overview-tab">
-                <h3>When to use it</h3>
-                <p className="skill-description">
-                  {detail.description ||
-                    "Add a description in SKILL.md so the app knows when to use this skill."}
-                </p>
-                {detail.issues.length > 0 && (
-                  <div className="review-notes">
-                    <h3>
-                      <AlertCircle size={16} />
-                      Review before sharing
-                    </h3>
-                    {detail.issues.map((issue) => (
-                      <p key={issue}>{issue}</p>
-                    ))}
-                  </div>
-                )}
-                <h3>Harness folders</h3>
-                <p className="muted">
-                  {detail.managed
-                    ? "These switches manage links in each harness folder. The shared package is retained when a link is removed."
-                    : "Share this skill to manage its folder links from one place."}
-                </p>
-                <div className="availability">
-                  {harnesses.map(({ id: tool }) => (
-                    <div key={tool}>
-                      <span>
-                        <strong>{toolLabel[tool]}</strong>
-                        <small>
-                          {detail.tools.includes(tool)
-                            ? "Present in folder"
-                            : "Not linked"}
-                        </small>
-                      </span>
-                      <Switch
-                        aria-label={`Link ${name} to ${toolLabel[tool]}`}
-                        checked={detail.tools.includes(tool)}
-                        disabled={
-                          !detail.managed ||
-                          busy ||
-                          detail.status === "conflict"
-                        }
-                        onCheckedChange={(enabled) =>
-                          void run(
-                            () =>
-                              api.enabled(name, tool, enabled, detail.revision),
-                            `${name}: ${toolLabel[tool]} folder link ${enabled ? "added" : "removed"}.`,
-                          )
-                        }
-                      />
+              Keep editing
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const action = pending;
+                setPending(undefined);
+                setDraft(file?.content ?? "");
+                action();
+              }}
+            >
+              Discard changes
+            </Button>
+          </div>
+        </section>
+      )}
+      <div className="reader-actions">
+        <Button
+          className="skill-back"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => guard(close)}
+        >
+          <ArrowLeft size={16} />
+          <span className="back-label">Back to skills</span>
+        </Button>
+        <nav className="reader-actions-end" aria-label="Skill views">
+          {(
+            [
+              ["overview", "Read"],
+              ["files", "Edit"],
+              ["settings", "Use in apps"],
+            ] as const
+          ).map(([mode, label]) => (
+            <Button
+              key={mode}
+              variant={tab === mode && !plan ? "secondary" : "ghost"}
+              aria-pressed={tab === mode && !plan}
+              disabled={!detail || busy}
+              onClick={() => {
+                if (tab === mode && !plan) return;
+                guard(() => {
+                  setPlan(undefined);
+                  setTab(mode);
+                });
+              }}
+            >
+              {label}
+            </Button>
+          ))}
+        </nav>
+      </div>
+      <header className="detail-header">
+        <div className="detail-title">
+          <h1 id="skill-title" ref={readerTitle} tabIndex={-1}>
+            {detail?.title ?? name}
+          </h1>
+          <p className="skill-description">
+            {detail
+              ? detail.description || "No description yet."
+              : "Reading skill…"}
+          </p>
+        </div>
+      </header>
+      {error && (
+        <div className="message error" role="alert">
+          <AlertCircle size={16} />
+          <span>{error}</span>
+        </div>
+      )}
+      {!detail ? (
+        <Empty>Reading skill…</Empty>
+      ) : (
+        !plan && (
+          <Suspense fallback={<p className="muted">Rendering Markdown…</p>}>
+            <div className="detail-content">
+              {tab === "overview" && (
+                <section
+                  className="overview-tab"
+                  aria-label="Skill instructions"
+                >
+                  {detail.status === "conflict" && (
+                    <div className="skill-conflict-note">
+                      <p>
+                        <AlertCircle size={16} /> This skill has different
+                        versions. You’re reading {sourceLabel[source]}.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTab("compare")}
+                      >
+                        <ArrowLeftRight size={15} /> Compare versions
+                      </Button>
                     </div>
-                  ))}
-                </div>
-                <p className="muted discovery-note">
-                  Harnesses can also discover skills in common folders such as
-                  ~/.agents/skills. Removing a link here does not disable a
-                  skill inside the harness.
-                </p>
-                <h3>Versions on disk</h3>
-                <div className="version-list">
-                  {detail.variants.map((variant) => (
-                    <button
-                      key={variant.id}
-                      className={cn(
-                        "version-row",
-                        source === variant.id && "version-selected",
-                      )}
-                      onClick={() =>
+                  )}
+                  <section
+                    className="instructions-section"
+                    aria-labelledby="instructions-title"
+                  >
+                    <div className="section-heading">
+                      <h2 id="instructions-title">Instructions</h2>
+                    </div>
+                    <MarkdownContent
+                      content={chosen?.content ?? ""}
+                      files={files}
+                      fileName="SKILL.md"
+                      openFile={(next) =>
                         guard(() => {
-                          setSource(variant.id);
-                          setFileName("SKILL.md");
+                          setFileName(next);
+                          setTab("files");
                         })
                       }
-                    >
-                      <span className="version-radio">
-                        {source === variant.id && <span />}
-                      </span>
-                      <span>
-                        <strong>
-                          {sourceLabel[variant.id]}{" "}
-                          {variant.version && (
-                            <Badge variant="secondary">
-                              v{variant.version}
-                            </Badge>
-                          )}
-                        </strong>
-                        <code>{shorten(variant.path)}</code>
-                        <small>
-                          {variant.linked ? "Linked folder" : "Folder"} ·{" "}
-                          {variant.files} files · {variant.hash.slice(0, 10)}
-                        </small>
-                      </span>
-                      {source === variant.id && <Check size={16} />}
-                    </button>
-                  ))}
-                </div>
-                {detail.status === "conflict" && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setTab("compare")}
-                  >
-                    <ArrowLeftRight size={15} />
-                    Compare before choosing
-                  </Button>
-                )}
-              </TabsContent>
-              <TabsContent value="files" className="files-tab">
-                <div className="file-toolbar">
-                  <label>
-                    Version
-                    <select
-                      aria-label="Choose file version"
-                      value={source}
-                      onChange={(e) =>
-                        guard(() => {
-                          setSource(e.target.value);
-                          setFileName("SKILL.md");
-                        })
-                      }
-                    >
-                      {detail.variants.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {sourceLabel[v.id]}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <span>{dirty ? "Unsaved changes" : "Saved on disk"}</span>
-                  <Button
-                    size="sm"
-                    disabled={!dirty || busy || fileLoading}
-                    onClick={() =>
-                      void run(async () => {
-                        if (!file) return;
-                        await api.save(
-                          name,
-                          source,
-                          fileName,
-                          draft,
-                          file.revision,
-                        );
-                        const next = await api.file(name, source, fileName);
-                        setFile(next);
-                        setDraft(next.content);
-                      }, `${fileName} saved. A backup is available in Activity.`)
-                    }
-                  >
-                    <Save size={14} />
-                    Save
-                  </Button>
-                </div>
-                <div className="file-workspace">
-                  <nav aria-label="Skill files" className="file-list">
-                    {files.map((f) => (
-                      <button
-                        key={f}
-                        className={cn(fileName === f && "file-selected")}
-                        aria-current={fileName === f ? "page" : undefined}
-                        onClick={() => guard(() => setFileName(f))}
-                        title={f}
+                    />
+                  </section>
+                </section>
+              )}
+              {tab === "files" && (
+                <section className="files-tab" aria-label="Edit skill files">
+                  <div className="file-toolbar">
+                    {isMarkdown && (
+                      <div
+                        className="editor-modes"
+                        role="group"
+                        aria-label="Editing mode"
                       >
-                        <FileText size={13} />
-                        <span>{f}</span>
-                      </button>
-                    ))}
-                  </nav>
-                  <div className="editor">
-                    <div className="editor-label">
-                      <code>{fileName}</code>
-                      <small>{sourceLabel[source]}</small>
-                    </div>
-                    {fileLoading ? (
-                      <Empty>Reading file…</Empty>
-                    ) : file ? (
-                      <SkillEditor
-                        key={`${source}:${fileName}`}
-                        fileName={fileName}
-                        value={draft}
-                        onChange={setDraft}
-                        readOnly={busy}
-                      />
-                    ) : (
-                      <Empty>Select a text file to edit.</Empty>
-                    )}
-                  </div>
-                </div>
-              </TabsContent>
-              <TabsContent value="compare" className="compare-tab">
-                <p className="muted">
-                  Choose the version to keep as the shared package. Package
-                  hashes also include scripts and references.
-                </p>
-                <div className="compare-grid">
-                  {detail.variants.map((variant) => (
-                    <div
-                      className={cn(
-                        "compare-version",
-                        source === variant.id && "compare-selected",
-                      )}
-                      key={variant.id}
-                    >
-                      <button
-                        className="compare-heading"
-                        onClick={() =>
-                          guard(() => {
-                            setSource(variant.id);
-                            setFileName("SKILL.md");
-                          })
-                        }
-                      >
-                        <span>
-                          <strong>{sourceLabel[variant.id]}</strong>
-                          <small>
-                            {variant.version ? `v${variant.version} · ` : ""}
-                            {variant.files} files · {variant.hash.slice(0, 10)}
-                          </small>
-                        </span>
-                        {source === variant.id ? (
-                          <Badge variant="secondary">
-                            <Check size={12} />
-                            Selected
-                          </Badge>
-                        ) : (
-                          <span className="choose-version">
-                            Choose
-                            <ChevronRight size={14} />
-                          </span>
-                        )}
-                      </button>
-                      <pre>{variant.content}</pre>
-                    </div>
-                  ))}
-                </div>
-                {detail.packageDiffs
-                  .filter((diff) => diff.files.length)
-                  .map((diff) => (
-                    <details key={diff.to} className="diff-panel">
-                      <summary>
-                        {sourceLabel[diff.from]} → {sourceLabel[diff.to]}:{" "}
-                        {diff.files.length} package files differ
-                      </summary>
-                      <ul>
-                        {diff.files.map((item) => (
-                          <li key={item.file}>
-                            <code>{item.file}</code> · {item.change}
-                          </li>
+                        {(["rendered", "source"] as const).map((mode) => (
+                          <Button
+                            key={mode}
+                            size="sm"
+                            variant={
+                              editorMode === mode ? "secondary" : "ghost"
+                            }
+                            aria-pressed={editorMode === mode}
+                            disabled={busy || fileLoading}
+                            onClick={() => setEditorMode(mode)}
+                          >
+                            {mode === "rendered" ? "Write" : "Source"}
+                          </Button>
                         ))}
-                      </ul>
-                    </details>
-                  ))}
-                {detail.diffs.some(
-                  (diff) => diff.patch.split("\n").length > 5,
-                ) && (
-                  <details className="diff-panel">
-                    <summary>Show SKILL.md changes</summary>
-                    {detail.diffs.map((diff) => (
-                      <div key={diff.to}>
-                        <h3>
-                          {sourceLabel[diff.from]} → {sourceLabel[diff.to]}
-                        </h3>
-                        <pre>
-                          {diff.patch.split("\n").map((line, index) => (
-                            <span
-                              key={index}
-                              className={
-                                line.startsWith("+")
-                                  ? "diff-added"
-                                  : line.startsWith("-")
-                                    ? "diff-removed"
-                                    : ""
-                              }
-                            >
-                              {line}
-                              {"\n"}
-                            </span>
+                      </div>
+                    )}
+                    {editableVersions.length > 1 && (
+                      <label>
+                        Version
+                        <select
+                          aria-label="Choose file version"
+                          value={source}
+                          disabled={busy}
+                          onChange={(e) =>
+                            guard(() => {
+                              setSource(e.target.value);
+                              setFileName("SKILL.md");
+                            })
+                          }
+                        >
+                          {editableVersions.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {sourceLabel[v.id]}
+                            </option>
                           ))}
-                        </pre>
+                        </select>
+                      </label>
+                    )}
+                    <span role="status">
+                      {dirty ? "Unsaved edits" : "Saved"}
+                    </span>
+                    <Button
+                      size="sm"
+                      disabled={!dirty || busy || fileLoading}
+                      onClick={() =>
+                        void run(async () => {
+                          if (!file) return;
+                          await api.save(
+                            name,
+                            source,
+                            fileName,
+                            draft,
+                            file.revision,
+                          );
+                          const next = await api.file(name, source, fileName);
+                          setFile(next);
+                          setDraft(next.content);
+                          setPending(undefined);
+                        }, "Changes saved. Your previous version is in Backups.")
+                      }
+                    >
+                      <Save size={14} />
+                      Save changes
+                    </Button>
+                  </div>
+                  <div
+                    className="file-workspace"
+                    data-single-file={files.length <= 1}
+                  >
+                    {files.length > 1 && (
+                      <nav aria-label="Skill files" className="file-list">
+                        {files.map((f) => (
+                          <button
+                            key={f}
+                            className={cn(fileName === f && "file-selected")}
+                            aria-current={fileName === f ? "page" : undefined}
+                            disabled={busy}
+                            onClick={() => guard(() => setFileName(f))}
+                            title={f}
+                          >
+                            <FileText size={13} />
+                            <span>{f}</span>
+                          </button>
+                        ))}
+                      </nav>
+                    )}
+                    <div className="editor-grid">
+                      <div className="editor" ref={editorRoot}>
+                        {(!isMarkdown ||
+                          editorMode === "source" ||
+                          fileLoading ||
+                          !file) && (
+                          <div className="editor-label">
+                            <code>{fileName}</code>
+                            <small>{sourceLabel[source]}</small>
+                          </div>
+                        )}
+                        {fileLoading ? (
+                          <Empty>Reading file…</Empty>
+                        ) : file && isMarkdown && editorMode === "rendered" ? (
+                          <MarkdownEditor
+                            key={`${source}-${fileName}-${file.revision}`}
+                            content={draft}
+                            fileName={fileName}
+                            label={`Edit ${fileName}`}
+                            disabled={busy}
+                            onChange={setDraft}
+                            onError={(message) => {
+                              setError(
+                                `The rendered editor could not open this file: ${message}`,
+                              );
+                              setEditorMode("source");
+                            }}
+                          />
+                        ) : file ? (
+                          <SkillEditor
+                            ref={editor}
+                            fileName={fileName}
+                            value={draft}
+                            readOnly={busy}
+                            onChange={setDraft}
+                          />
+                        ) : (
+                          <Empty>Select a text file to edit.</Empty>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              )}
+              {tab === "compare" && (
+                <section
+                  className="compare-tab"
+                  aria-label="Compare skill versions"
+                >
+                  <p className="muted">
+                    Choose the version you want to use in your apps. Other
+                    versions will be backed up before they’re replaced.
+                  </p>
+                  <div className="compare-grid">
+                    {detail.variants.map((variant) => (
+                      <div
+                        className={cn(
+                          "compare-version",
+                          source === variant.id && "compare-selected",
+                        )}
+                        key={variant.id}
+                      >
+                        <button
+                          className="compare-heading"
+                          disabled={busy}
+                          aria-pressed={source === variant.id}
+                          onClick={() =>
+                            guard(() => {
+                              setSource(variant.id);
+                              setFileName("SKILL.md");
+                            })
+                          }
+                        >
+                          <span>
+                            <strong>{sourceLabel[variant.id]}</strong>
+                            <small>
+                              {variant.version ? `v${variant.version} · ` : ""}
+                              {variant.files}{" "}
+                              {variant.files === 1 ? "file" : "files"}
+                            </small>
+                          </span>
+                          {source === variant.id ? (
+                            <Badge variant="secondary">
+                              <Check size={12} />
+                              Selected
+                            </Badge>
+                          ) : (
+                            <span className="choose-version">
+                              Choose
+                              <ChevronRight size={14} />
+                            </span>
+                          )}
+                        </button>
+                        <MarkdownContent
+                          content={variant.content}
+                          files={files}
+                          fileName="SKILL.md"
+                          openFile={(next) =>
+                            guard(() => {
+                              setSource(variant.id);
+                              setFileName(next);
+                              setTab("files");
+                            })
+                          }
+                        />
                       </div>
                     ))}
-                  </details>
-                )}
-              </TabsContent>
-              <TabsContent value="sharing" className="overview-tab">
-                <h3>Choose harness folders</h3>
-                <p className="muted">
-                  Share the {sourceLabel[source]} version with the harnesses
-                  selected below. Review the file changes before applying them.
-                </p>
-                <HarnessChoice
-                  harnesses={harnesses}
-                  tools={tools}
-                  setTools={setTools}
-                  disabled={busy}
-                />
-                <p className="muted discovery-note">
-                  Common folders may be read by other harnesses too. These
-                  choices control where Palimpsest places links.
-                </p>
-              </TabsContent>
-            </Tabs>
-          )}
-          {detail && (
-            <div className="detail-footer">
-              <div>
-                <strong>
-                  {detail.status === "shared"
-                    ? "One package, shared files"
-                    : "Share the selected version"}
-                </strong>
-                <small>
-                  {detail.status === "shared"
-                    ? "Edits reach every linked app."
-                    : `Keep ${sourceLabel[source] ?? "the selected version"}; original folders are backed up.`}
-                </small>
-              </div>
-              <div className="share-controls">
-                <span className="muted">
-                  {tools.length} {tools.length === 1 ? "harness" : "harnesses"}{" "}
-                  selected
-                </span>
-                <Button
-                  ref={shareButton}
-                  disabled={busy || dirty || !tools.length}
-                  onClick={() => void reviewShare()}
-                >
-                  {busy ? (
-                    <Loader2 size={15} className="spin" />
-                  ) : (
-                    <Link2 size={15} />
+                  </div>
+                  <Button variant="outline" onClick={() => setTab("settings")}>
+                    Continue with this version
+                  </Button>
+                  {detail.packageDiffs
+                    .filter((diff) => diff.files.length)
+                    .map((diff) => (
+                      <details key={diff.to} className="diff-panel">
+                        <summary>
+                          {sourceLabel[diff.from]} → {sourceLabel[diff.to]}:{" "}
+                          {diff.files.length} other files changed
+                        </summary>
+                        <ul>
+                          {diff.files.map((item) => (
+                            <li key={item.file}>
+                              <code>{item.file}</code> · {item.change}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    ))}
+                  {detail.diffs.some(
+                    (diff) => diff.patch.split("\n").length > 5,
+                  ) && (
+                    <details className="diff-panel">
+                      <summary>Show exact instruction changes</summary>
+                      {detail.diffs.map((diff) => (
+                        <div key={diff.to}>
+                          <h3>
+                            {sourceLabel[diff.from]} → {sourceLabel[diff.to]}
+                          </h3>
+                          <pre>
+                            {diff.patch.split("\n").map((line, index) => (
+                              <span
+                                key={index}
+                                className={
+                                  line.startsWith("+")
+                                    ? "diff-added"
+                                    : line.startsWith("-")
+                                      ? "diff-removed"
+                                      : ""
+                                }
+                              >
+                                {line}
+                                {"\n"}
+                              </span>
+                            ))}
+                          </pre>
+                        </div>
+                      ))}
+                    </details>
                   )}
-                  Review sharing
-                </Button>
-              </div>
+                </section>
+              )}
+              {tab === "settings" && (
+                <section
+                  className="overview-tab"
+                  aria-label="Use this skill in apps"
+                >
+                  {detail.issues.length > 0 && (
+                    <div className="review-notes">
+                      <h3>Check before adding to apps</h3>
+                      {detail.issues.map((issue) => (
+                        <p key={issue}>{skillIssueText(issue)}</p>
+                      ))}
+                    </div>
+                  )}
+                  {detail.managed && detail.status === "shared" ? (
+                    <section aria-labelledby="app-links-title">
+                      <h3 id="app-links-title">Use this skill in your apps</h3>
+                      <p className="muted">
+                        Edit this skill once and keep the same instructions in
+                        each app. Restart the app to pick up your changes.
+                      </p>
+                      {detail.tools.length ? (
+                        <ul className="linked-apps">
+                          {harnesses
+                            .filter((harness) =>
+                              detail.tools.includes(harness.id),
+                            )
+                            .map((harness) => (
+                              <li key={harness.id}>
+                                <span>{harness.name}</span>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  aria-label={`Remove from ${harness.name}`}
+                                  disabled={busy}
+                                  data-app-action={`${harness.id}-remove`}
+                                  onClick={() =>
+                                    void changeAppLink(harness.id, false)
+                                  }
+                                >
+                                  Remove
+                                </Button>
+                              </li>
+                            ))}
+                        </ul>
+                      ) : (
+                        <p className="muted app-empty">
+                          Choose an app below to use this skill. Your saved copy
+                          stays in the library.
+                        </p>
+                      )}
+                      {otherApps.length > 0 && (
+                        <section
+                          className="add-apps"
+                          aria-labelledby="add-app-title"
+                        >
+                          <h3 id="add-app-title">Add to another app</h3>
+                          <div className="app-buttons">
+                            {otherApps.map((harness) => (
+                              <Button
+                                key={harness.id}
+                                variant="outline"
+                                aria-label={`Add to ${harness.name}`}
+                                disabled={busy}
+                                data-app-action={`${harness.id}-add`}
+                                onClick={() =>
+                                  void changeAppLink(harness.id, true)
+                                }
+                              >
+                                <Plus size={14} />
+                                {harness.name}
+                              </Button>
+                            ))}
+                          </div>
+                        </section>
+                      )}
+                      <p className="muted discovery-note">
+                        Apps may also find this skill elsewhere. Removing an app
+                        here keeps your saved copy and doesn’t turn the skill
+                        off inside that app.
+                      </p>
+                    </section>
+                  ) : (
+                    <section aria-labelledby="share-title">
+                      <h3 id="share-title">Use this skill in your apps</h3>
+                      <p className="muted">
+                        Choose where you want to use the {sourceLabel[source]}
+                        version. You’ll review any replacements before they
+                        happen.
+                      </p>
+                      <HarnessChoice
+                        harnesses={harnesses}
+                        tools={tools}
+                        setTools={setTools}
+                        disabled={busy}
+                      />
+                      <p className="muted discovery-note">
+                        Edits will stay consistent across the apps you choose.
+                        Restart each app to pick up changes.
+                      </p>
+                    </section>
+                  )}
+                </section>
+              )}
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={!!plan}
-        onOpenChange={(open) => {
-          if (!open && !busy) setPlan(undefined);
-        }}
-      >
-        <DialogContent
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            shareButton.current?.focus();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Share {name}</DialogTitle>
-            <DialogDescription>
-              Use the {sourceLabel[plan?.source ?? ""]} version as the single
-              package for {plan?.tools.map((t) => toolLabel[t]).join(" and ")}.
-            </DialogDescription>
-          </DialogHeader>
+          </Suspense>
+        )
+      )}
+      {detail &&
+        !plan &&
+        tab === "settings" &&
+        !(detail.managed && detail.status === "shared") && (
+          <div className="detail-footer">
+            <div>
+              <strong>
+                {detail.status === "shared"
+                  ? "Keep the same instructions in each app"
+                  : "Use this version in your apps"}
+              </strong>
+              <small>
+                {detail.status === "shared"
+                  ? "Edit once to update every app you’ve added."
+                  : `Keep ${sourceLabel[source] ?? "this version"}; previous versions are backed up.`}
+              </small>
+            </div>
+            <div className="share-controls">
+              <span className="muted">
+                {tools.length} {tools.length === 1 ? "app" : "apps"} selected
+              </span>
+              <Button
+                ref={shareButton}
+                disabled={busy || dirty || !tools.length}
+                onClick={() => void reviewShare()}
+              >
+                {busy ? (
+                  <Loader2 size={15} className="spin" />
+                ) : (
+                  <Link2 size={15} />
+                )}
+                Review app choices
+              </Button>
+            </div>
+          </div>
+        )}
+      {plan && (
+        <section className="sharing-preview" aria-labelledby="sharing-title">
+          <div>
+            <h3 id="sharing-title" ref={sharingTitle} tabIndex={-1}>
+              Review app choices
+            </h3>
+            <p className="muted">
+              Add the {sourceLabel[plan.source]} version to{" "}
+              {new Intl.ListFormat("en", {
+                style: "long",
+                type: "conjunction",
+              }).format(plan.tools.map((t) => toolLabel[t]))}
+              .
+            </p>
+          </div>
           <div className="share-review">
             <p>
-              <strong>{plan?.files} files</strong> including scripts and
-              references will live together.
+              <strong>
+                {plan.files} {plan.files === 1 ? "file" : "files"}
+              </strong>{" "}
+              stay together, including any references and scripts.
             </p>
-            <code>{plan && shorten(plan.canonical)}</code>
-            {!!plan?.replaced.length && (
+            {!!plan.replaced.length && (
               <div className="review-notes">
                 <strong>Different versions will be backed up</strong>
                 {plan.replaced.map((item) => (
@@ -1141,15 +1316,18 @@ function SkillDialog({
               </div>
             )}
             <p className="muted">
-              A complete backup is saved before any folder is replaced. Restore
-              it from Backups.
+              Previous versions are saved in Backups before anything is
+              replaced.
             </p>
           </div>
-          <DialogFooter>
+          <div className="inline-actions">
             <Button
               variant="outline"
               disabled={busy}
-              onClick={() => setPlan(undefined)}
+              onClick={() => {
+                setPlan(undefined);
+                requestAnimationFrame(() => shareButton.current?.focus());
+              }}
             >
               Back
             </Button>
@@ -1164,46 +1342,17 @@ function SkillDialog({
                     setSource("shared");
                     setFileName("SKILL.md");
                   },
-                  `${name} now uses shared files in ${plan.tools.join(" and ")}.`,
+                  `${name} added to ${plan.tools.map((tool) => toolLabel[tool]).join(" and ")}.`,
                 );
               }}
             >
-              {busy && <Loader2 size={14} className="spin" />}Share skill
+              {busy && <Loader2 size={14} className="spin" />}Add to selected
+              apps
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={!!pending}
-        onOpenChange={(open) => {
-          if (!open) setPending(undefined);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Discard unsaved changes?</DialogTitle>
-            <DialogDescription>
-              Your edits to {fileName} have not been saved.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPending(undefined)}>
-              Keep editing
-            </Button>
-            <Button
-              onClick={() => {
-                const action = pending;
-                setPending(undefined);
-                setDraft(file?.content ?? "");
-                action?.();
-              }}
-            >
-              Discard changes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+          </div>
+        </section>
+      )}
+    </section>
   );
 }
 
@@ -1245,9 +1394,9 @@ function CreateDialog({
     >
       <DialogContent className="create-dialog">
         <DialogHeader>
-          <DialogTitle>New shared skill</DialogTitle>
+          <DialogTitle>Create a skill</DialogTitle>
           <DialogDescription>
-            Create one package and choose where it is available.
+            Describe a task you want help with and how you want it done.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -1262,7 +1411,7 @@ function CreateDialog({
               setDescription("");
               setBody("");
               await changed(
-                `${name} created and linked to ${tools.map((tool) => toolLabel[tool]).join(", ")}.`,
+                `${name} created and added to ${tools.map((tool) => toolLabel[tool]).join(", ")}.`,
               );
             } catch (e) {
               setError((e as Error).message);
@@ -1272,7 +1421,7 @@ function CreateDialog({
           }}
         >
           <label className="field-label" htmlFor="new-name">
-            Folder name
+            Skill name
           </label>
           <Input
             id="new-name"
@@ -1286,7 +1435,7 @@ function CreateDialog({
             Lowercase letters, numbers, hyphens, or underscores.
           </p>
           <label className="field-label" htmlFor="new-description">
-            When should the harness use it?
+            When should your app use this skill?
           </label>
           <Textarea
             id="new-description"
@@ -1307,7 +1456,7 @@ function CreateDialog({
             onChange={(e) => setBody(e.target.value)}
             required
           />
-          <div className="field-label">Harness folders</div>
+          <div className="field-label">Use in these apps</div>
           <HarnessChoice
             harnesses={harnesses}
             tools={tools}

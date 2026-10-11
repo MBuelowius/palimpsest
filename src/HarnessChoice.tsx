@@ -1,5 +1,4 @@
 import { Checkbox } from "@/components/ui/checkbox";
-import { harnesses as supportedHarnesses } from "../shared/harnesses";
 import type { Harness, Tool } from "../server/harnesses";
 
 export function HarnessChoice({
@@ -7,7 +6,7 @@ export function HarnessChoice({
   tools,
   setTools,
   disabled = false,
-  action = "Share with",
+  action = "Use in",
 }: {
   harnesses: Harness[];
   tools: Tool[];
@@ -34,15 +33,8 @@ export function HarnessChoice({
             />
             <span className="harness-choice-text">
               {harness.name}
-              <small>
-                ~/
-                {
-                  supportedHarnesses.find((item) => item.id === harness.id)!
-                    .directory
-                }
-              </small>
               {!harness.detected && (
-                <small className="harness-undetected">Not detected</small>
+                <small className="harness-undetected">No setup found</small>
               )}
             </span>
           </label>
@@ -50,7 +42,8 @@ export function HarnessChoice({
       </div>
       {!harnesses.some((harness) => harness.detected) && (
         <p className="field-hint">
-          No harness detected. Select one manually to continue.
+          Choose the apps you want to use. You can add them before setting them
+          up.
         </p>
       )}
     </div>

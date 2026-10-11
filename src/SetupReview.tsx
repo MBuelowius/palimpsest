@@ -165,11 +165,12 @@ export function SetupReview({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="setup-review-dialog">
         <DialogHeader>
-          <DialogTitle>Review skill setup</DialogTitle>
+          <DialogTitle>Improve your skills</DialogTitle>
           <DialogDescription>
-            Find skills to keep, refine, combine, or consider retiring. Reviews
-            propose changes only. Skill paths and inspected content go to the
-            selected agent’s configured provider and may use paid tokens.
+            Get suggestions on skills to keep, refine, combine, or consider
+            retiring from Codex or Claude Code. The review uses your existing
+            account, sends skill paths and content to that app’s provider, and
+            may incur usage charges. It proposes changes only.
           </DialogDescription>
         </DialogHeader>
         {running && (
@@ -193,7 +194,7 @@ export function SetupReview({
         {settings && (
           <>
             <div className="setup-review-controls">
-              <label htmlFor="review-agent">Reviewer</label>
+              <label htmlFor="review-agent">Review with</label>
               <select
                 id="review-agent"
                 value={settings.agent}
@@ -226,7 +227,11 @@ export function SetupReview({
                 {running && (
                   <Loader2 size={15} className="spin" aria-hidden="true" />
                 )}
-                {running ? "Reviewing…" : "Run review"}
+                {running
+                  ? "Reviewing…"
+                  : status?.reports.length
+                    ? "Review again"
+                    : "Review my skills"}
               </Button>
               <Button
                 variant="outline"
@@ -346,8 +351,8 @@ export function SetupReview({
         </p>
         {!loading && !error && !agents.some((item) => item.executable) && (
           <p>
-            Install Codex or Claude Code and sign in through its CLI, then
-            reopen this review.
+            Install Codex or Claude Code and sign in from its command line app,
+            then reopen this review.
           </p>
         )}
         {!!status?.reports.length && (
@@ -376,6 +381,9 @@ export function SetupReview({
                 {result.agent === "codex" ? "Codex" : "Claude Code"} ·{" "}
                 {result.model || "Configured default (unverified)"} ·{" "}
                 {selected.skillCount} skills · {triggerLabels[result.trigger]}
+                {" · "}
+                {new Date(result.at).toLocaleString()} · Skills as they were
+                when reviewed
               </p>
               <Button
                 variant="outline"
