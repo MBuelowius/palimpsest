@@ -5,11 +5,12 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { SkillLibrary, LibraryError, type Tool } from "./library.ts";
 
 import { Marketplaces } from "./marketplaces.ts";
-import { installedAgents, runReview } from "./review.ts";
+import { installedAgents } from "./review.ts";
+import { SkillReviews, type ReviewSettings } from "./skillReviews.ts";
 
 export function createServer(library: SkillLibrary, webDir: string) {
   const marketplaces = new Marketplaces(library);
-  let reviewing = false;
+  const reviews = new SkillReviews(library);
   const token = randomBytes(32).toString("hex");
   const send = (res: http.ServerResponse, status: number, data: unknown) => {
     res.writeHead(status, {
@@ -19,7 +20,7 @@ export function createServer(library: SkillLibrary, webDir: string) {
     });
     res.end(JSON.stringify(data));
   };
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     try {
       const host = req.headers.host ?? "";
       if (!/^(127\.0\.0\.1|localhost):\d+$/.test(host))
@@ -72,6 +73,13 @@ export function createServer(library: SkillLibrary, webDir: string) {
         }
         if (url.pathname === "/api/review/agents" && req.method === "GET")
           return send(res, 200, installedAgents());
+        if (url.pathname === "/api/review" && req.method === "GET")
+          return send(res, 200, reviews.status());
+        const reportMatch = url.pathname.match(
+          /^\/api\/review\/reports\/([a-f0-9-]{36})$/,
+        );
+        if (reportMatch && req.method === "GET")
+          return send(res, 200, reviews.report(reportMatch[1]));
         if (url.pathname === "/api/history" && req.method === "GET")
           return send(
             res,
@@ -109,22 +117,18 @@ export function createServer(library: SkillLibrary, webDir: string) {
           return body[key] as string;
         };
         if (url.pathname === "/api/review" && req.method === "POST") {
-          if (reviewing)
-            throw new LibraryError(
-              "A setup review is already running. Wait for it to finish.",
-              409,
-            );
-          reviewing = true;
-          try {
-            return send(
-              res,
-              200,
-              await runReview(library, string("agent") as Tool),
-            );
-          } finally {
-            reviewing = false;
-          }
+          return send(
+            res,
+            200,
+            await reviews.run(
+              string("agent") as Tool,
+              body.model === undefined ? undefined : string("model"),
+              body.context === undefined ? undefined : string("context"),
+            ),
+          );
         }
+        if (url.pathname === "/api/review/settings" && req.method === "PUT")
+          return send(res, 200, reviews.saveSettings(body as ReviewSettings));
         if (url.pathname === "/api/sync/plan" && req.method === "POST")
           return send(res, 200, library.syncPlan(body.tools as Tool[]));
         if (url.pathname === "/api/sync" && req.method === "POST")
@@ -300,4 +304,16 @@ export function createServer(library: SkillLibrary, webDir: string) {
       });
     }
   });
+  let timer: ReturnType<typeof setInterval>;
+  server.once("listening", () => {
+    const check = () =>
+      void reviews.runDue().catch((error: Error) => {
+        process.stderr.write("Automatic skill review: " + error.message + "\n");
+      });
+    timer = setInterval(check, 60_000);
+    timer.unref();
+    check();
+  });
+  server.once("close", () => clearInterval(timer));
+  return server;
 }

@@ -6,8 +6,15 @@ import type {
 export type MarketplacePreview = ReturnType<Marketplaces["preview"]>;
 export type { Marketplace, CatalogueSkill };
 import type { Skill, SkillLibrary, Tool, Operation } from "../server/library";
-import type { installedAgents, runReview } from "../server/review";
-export type ReviewReport = Awaited<ReturnType<typeof runReview>>;
+import type { installedAgents } from "../server/review";
+import type {
+  SkillReviews,
+  SavedReview,
+  ReviewSettings,
+} from "../server/skillReviews";
+export type ReviewReport = SavedReview;
+export type ReviewStatus = ReturnType<SkillReviews["status"]>;
+export type { ReviewSettings };
 export type ReviewAgent = ReturnType<typeof installedAgents>[number];
 export type Inventory = ReturnType<SkillLibrary["inventory"]>;
 export type Detail = ReturnType<SkillLibrary["detail"]>;
@@ -49,8 +56,13 @@ async function request<T>(
 const skillUrl = (name: string) => "/api/skills/" + encodeURIComponent(name);
 export const api = {
   reviewAgents: () => request<ReviewAgent[]>("/api/review/agents"),
-  reviewSetup: (agent: Tool) =>
-    request<ReviewReport>("/api/review", "POST", { agent }),
+  reviewStatus: () => request<ReviewStatus>("/api/review"),
+  reviewReport: (id: string) =>
+    request<ReviewReport>("/api/review/reports/" + id),
+  saveReviewSettings: (settings: ReviewSettings) =>
+    request<ReviewSettings>("/api/review/settings", "PUT", settings),
+  reviewSetup: (agent: Tool, model: string, context: string) =>
+    request<ReviewReport>("/api/review", "POST", { agent, model, context }),
   syncPlan: (tools: Tool[]) =>
     request<SyncPlan>("/api/sync/plan", "POST", { tools }),
   sync: (plans: SyncPlan["plans"], tools: Tool[]) =>
