@@ -1,4 +1,4 @@
-export type Tool =
+export type BaseTool =
   | "claude"
   | "codex"
   | "cursor"
@@ -7,8 +7,12 @@ export type Tool =
   | "copilot"
   | "windsurf";
 
+// An account is another config folder for the same app, written "claude:work".
+export type Tool = BaseTool | `${BaseTool}:${string}`;
+export const baseTool = (tool: string) => tool.split(":")[0] as BaseTool;
+
 type HarnessDefinition = {
-  id: Tool;
+  id: BaseTool;
   name: string;
   config: string;
   commands: string[];
@@ -84,11 +88,25 @@ export const harnesses = harnessDefinitions.map((harness) => ({
 }));
 export const toolLabel = Object.fromEntries(
   harnesses.map((harness) => [harness.id, harness.label]),
-) as Record<Tool, string>;
-export const sourceLabel: Record<string, string> = {
+) as Record<BaseTool, string>;
+const folderLabel: Record<string, string> = {
   ...toolLabel,
   codex: "Codex · legacy folder",
   agents: "Common agents folder",
   devin: "Devin",
   shared: "Shared library",
 };
+const named = (labels: Record<string, string>) => (id: string) => {
+  const [base, ...account] = id.split(":");
+  return labels[base]
+    ? account.length
+      ? `${labels[base]} · ${account.join(":")}`
+      : labels[base]
+    : id;
+};
+// An app or one of its accounts, and the same for a skill folder.
+export const toolName = named(toolLabel);
+const folderName = named(folderLabel);
+// An account's skill folder is named after the account, not the app's folders.
+export const sourceName = (id: string) =>
+  id.includes(":") ? toolName(id) : folderName(id);

@@ -5,9 +5,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { parseDocument } from "yaml";
 import { createTwoFilesPatch } from "diff";
 import {
+  baseTool,
   detectHarnesses,
   harnessDefinitions,
   skillRoots,
+  toolName,
+  type BaseTool,
+  type Harness,
   type Tool,
 } from "./harnesses.ts";
 
@@ -35,7 +39,17 @@ export type Skill = {
   issues: string[];
   tools: Tool[];
 };
-type Manifest = { schema: 1; skills: Record<string, { adoptedAt: string }> };
+export type Account = {
+  id: Tool;
+  tool: BaseTool;
+  name: string;
+  folder: string;
+};
+export type Origin = { source: string; path: string; hash: string };
+type Manifest = {
+  schema: 1;
+  skills: Record<string, { adoptedAt: string; origin?: Origin }>;
+};
 type Snapshot = { path: string; backup: string | null; after?: string };
 export type Operation = {
   id: string;
@@ -172,7 +186,7 @@ export class SkillLibrary {
   readonly home: string;
   readonly shared: string;
   readonly state: string;
-  readonly roots: ReturnType<typeof skillRoots>;
+  private readonly baseRoots: ReturnType<typeof skillRoots>;
   constructor(home = os.homedir()) {
     this.home = fs.realpathSync(path.resolve(home));
     this.shared = path.join(this.home, ".harnesses-shared", "skills");
@@ -183,7 +197,112 @@ export class SkillLibrary {
       "skill-library",
       "state",
     );
-    this.roots = skillRoots(this.home);
+    this.baseRoots = skillRoots(this.home);
+  }
+  get roots() {
+    return [
+      ...this.baseRoots,
+      ...this.accounts().map((account) => ({
+        id: account.id as string,
+        tool: account.id,
+        label: toolName(account.id),
+        path: path.join(account.folder, "skills"),
+      })),
+    ];
+  }
+  private rootFor(tool: Tool) {
+    return this.roots.find(
+      (root) => root.id === (tool === "codex" ? "agents" : tool),
+    )!;
+  }
+  accounts(): Account[] {
+    const p = path.join(this.state, "accounts.json");
+    return present(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : [];
+  }
+  harnesses(): Harness[] {
+    const accounts = this.accounts();
+    return detectHarnesses(this.home).flatMap((harness) => [
+      harness,
+      ...accounts
+        .filter((account) => account.tool === harness.id)
+        .map((account) => ({
+          id: account.id,
+          name: toolName(account.id),
+          base: account.tool,
+          detected: present(account.folder),
+          evidence: [{ kind: "config" as const, path: account.folder }],
+        })),
+    ]);
+  }
+  addAccount(tool: BaseTool, name: string, folder: string) {
+    return this.lock(() => {
+      if (!harnessDefinitions.some((harness) => harness.id === tool))
+        throw new LibraryError("Choose a supported app.");
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/.test(name))
+        throw new LibraryError(
+          "Use up to 32 letters, numbers, hyphens, or underscores for the account name.",
+        );
+      let real: string;
+      try {
+        real = fs.realpathSync(
+          path.resolve(this.home, folder.replace(/^~(?=\/|$)/, this.home)),
+        );
+        if (!fs.statSync(real).isDirectory()) throw new Error("not a folder");
+      } catch {
+        throw new LibraryError("That folder does not exist.");
+      }
+      if (
+        real === this.home ||
+        !within(this.home, real) ||
+        within(path.join(this.home, ".harnesses-shared"), real) ||
+        within(this.state, real)
+      )
+        throw new LibraryError(
+          "Choose a config folder inside your home folder, such as ~/.claude-work.",
+        );
+      const skills = path.join(real, "skills"),
+        id = `${tool}:${name}` as Tool;
+      const taken = this.roots.find((root) => {
+        try {
+          return fs.realpathSync(root.path) === skills || root.path === skills;
+        } catch {
+          return root.path === skills;
+        }
+      });
+      if (taken)
+        throw new LibraryError(
+          `That folder is already used by ${taken.label}.`,
+          409,
+        );
+      const accounts = this.accounts();
+      if (accounts.some((account) => account.id === id))
+        throw new LibraryError("That account name is already used.", 409);
+      this.json(path.join(this.state, "accounts.json"), [
+        ...accounts,
+        { id, tool, name, folder: real },
+      ]);
+      return this.harnesses().find((harness) => harness.id === id)!;
+    });
+  }
+  removeAccount(id: string) {
+    return this.lock(() => {
+      const accounts = this.accounts();
+      if (!accounts.some((account) => account.id === id))
+        throw new LibraryError("Account not found.", 404);
+      const used = this.inventory().skills.filter((skill) =>
+        skill.tools.includes(id as Tool),
+      ).length;
+      if (used)
+        throw new LibraryError(
+          `Remove this account from its ${used} ${used === 1 ? "skill" : "skills"} first. Your files are never deleted.`,
+          409,
+        );
+      this.json(
+        path.join(this.state, "accounts.json"),
+        accounts.filter((account) => account.id !== id),
+      );
+      return { removed: true };
+    });
   }
   detectedTools(): Tool[] {
     return detectHarnesses(this.home)
@@ -195,6 +314,13 @@ export class SkillLibrary {
     return present(p)
       ? JSON.parse(fs.readFileSync(p, "utf8"))
       : { schema: 1, skills: {} };
+  }
+  origins() {
+    return Object.fromEntries(
+      Object.entries(this.manifest().skills).flatMap(([name, entry]) =>
+        entry.origin ? [[name, entry.origin]] : [],
+      ),
+    );
   }
   private json(p: string, value: unknown) {
     fs.mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 });
@@ -299,7 +425,7 @@ export class SkillLibrary {
       skills,
       scanIssues,
       roots: this.roots,
-      harnesses: detectHarnesses(this.home),
+      harnesses: this.harnesses(),
       shared: this.shared,
       state: this.state,
       counts: {
@@ -412,14 +538,7 @@ export class SkillLibrary {
       const existing = skill.variants.filter((v) => v.tool === tool);
       return existing.length
         ? existing.map((v) => v.path)
-        : [
-            path.join(
-              this.roots.find(
-                (r) => r.id === (tool === "codex" ? "agents" : tool),
-              )!.path,
-              name,
-            ),
-          ];
+        : [path.join(this.rootFor(tool).path, name)];
     });
     if (
       targets.some(
@@ -451,7 +570,9 @@ export class SkillLibrary {
       !Array.isArray(tools) ||
       !tools.length ||
       tools.some(
-        (t) => !harnessDefinitions.some((harness) => harness.id === t),
+        (t) =>
+          !harnessDefinitions.some((harness) => harness.id === t) &&
+          !this.accounts().some((account) => account.id === t),
       ) ||
       new Set(tools).size !== tools.length
     )
@@ -460,8 +581,9 @@ export class SkillLibrary {
       );
   }
   private validateCompatibility(name: string, title: string, tools: Tool[]) {
+    const bases = tools.map(baseTool);
     const requiresName = harnessDefinitions.filter(
-      (harness) => tools.includes(harness.id) && harness.requiresName,
+      (harness) => bases.includes(harness.id) && harness.requiresName,
     );
     if (!title && requiresName.length)
       throw new LibraryError(
@@ -470,7 +592,7 @@ export class SkillLibrary {
           ".",
       );
     if (
-      tools.includes("opencode") &&
+      bases.includes("opencode") &&
       (title !== name ||
         title.length > 64 ||
         !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(title))
@@ -572,13 +694,7 @@ export class SkillLibrary {
       const chosen = this.variant(this.skill(name, revision), source);
       return this.transaction(
         name,
-        "Share with " +
-          tools
-            .map(
-              (tool) =>
-                harnessDefinitions.find((harness) => harness.id === tool)!.name,
-            )
-            .join(" and "),
+        "Share with " + tools.map(toolName).join(" and "),
         [plan.canonical, ...plan.targets],
         () => {
           if (chosen.realPath !== plan.canonical) {
@@ -640,14 +756,7 @@ export class SkillLibrary {
         );
       const targets = bindings.length
         ? bindings.map((v) => v.path)
-        : [
-            path.join(
-              this.roots.find(
-                (r) => r.id === (tool === "codex" ? "agents" : tool),
-              )!.path,
-              name,
-            ),
-          ];
+        : [path.join(this.rootFor(tool).path, name)];
       if (!bindings.length && targets.some((target) => present(target)))
         throw new LibraryError(
           "An unrelated folder occupies this app location. It has been left untouched.",
@@ -757,14 +866,7 @@ export class SkillLibrary {
           409,
         );
       const canonical = path.join(this.shared, name),
-        targets = tools.map((tool) =>
-          path.join(
-            this.roots.find(
-              (r) => r.id === (tool === "codex" ? "agents" : tool),
-            )!.path,
-            name,
-          ),
-        );
+        targets = tools.map((tool) => path.join(this.rootFor(tool).path, name));
       if ([canonical, ...targets].some((p) => present(p)))
         throw new LibraryError("An existing directory uses this name.", 409);
       return this.transaction(
@@ -788,7 +890,13 @@ export class SkillLibrary {
       );
     });
   }
-  installPackage(name: string, directory: string, hash: string, tools: Tool[]) {
+  installPackage(
+    name: string,
+    directory: string,
+    hash: string,
+    tools: Tool[],
+    origin?: Omit<Origin, "hash">,
+  ) {
     return this.lock(() => {
       if (!namePattern.test(name) || name === "synced")
         throw new LibraryError("Invalid skill folder name.");
@@ -811,11 +919,7 @@ export class SkillLibrary {
         );
       const canonical = path.join(this.shared, name);
       const targets = tools.map((tool) =>
-        path.join(
-          this.roots.find((r) => r.id === (tool === "codex" ? "agents" : tool))!
-            .path,
-          name,
-        ),
+        path.join(this.rootFor(tool).path, name),
       );
       if ([canonical, ...targets].some((p) => present(p)))
         throw new LibraryError("An existing directory uses this name.", 409);
@@ -835,10 +939,64 @@ export class SkillLibrary {
             fs.symlinkSync(canonical, target, "dir");
           }
           const manifest = this.manifest();
-          manifest.skills[name] = { adoptedAt: new Date().toISOString() };
+          manifest.skills[name] = {
+            adoptedAt: new Date().toISOString(),
+            origin: origin && { ...origin, hash },
+          };
           this.json(path.join(this.state, "manifest.json"), manifest);
         },
       );
+    });
+  }
+  updatePackage(name: string, directory: string, hash: string) {
+    return this.lock(() => {
+      const entry = this.manifest().skills[name];
+      if (!entry?.origin)
+        throw new LibraryError("This skill was not added from a collection.");
+      const skill = this.skill(name),
+        canonical = path.join(this.shared, name);
+      if (
+        skill.status !== "shared" ||
+        !present(canonical) ||
+        fs.lstatSync(canonical).isSymbolicLink()
+      )
+        throw new LibraryError(
+          "This skill is no longer a single shared copy, so it cannot be updated automatically.",
+          409,
+        );
+      const packageTree = tree(directory);
+      if (packageTree.hash !== hash)
+        throw new LibraryError("The update changed. Review it again.", 409);
+      if (packageTree.links.length)
+        throw new LibraryError("Packages with symlinks cannot be installed.");
+      const info = metadata(
+        fs.readFileSync(path.join(directory, "SKILL.md"), "utf8"),
+      );
+      if (!info.description)
+        throw new LibraryError("The package needs valid skill metadata.");
+      this.validateCompatibility(name, info.title, skill.tools);
+      const staging = path.join(this.shared, ".update-" + randomUUID());
+      try {
+        return this.transaction(
+          name,
+          "Update marketplace skill",
+          [canonical],
+          () => {
+            fs.cpSync(directory, staging, {
+              recursive: true,
+              filter: (p) =>
+                !ignored.has(path.basename(p)) && !p.endsWith(".pyc"),
+            });
+            fs.rmSync(canonical, { recursive: true });
+            fs.renameSync(staging, canonical);
+            const manifest = this.manifest();
+            manifest.skills[name].origin = { ...entry.origin!, hash };
+            this.json(path.join(this.state, "manifest.json"), manifest);
+          },
+        );
+      } finally {
+        fs.rmSync(staging, { recursive: true, force: true });
+      }
     });
   }
   history() {

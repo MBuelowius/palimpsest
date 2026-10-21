@@ -199,3 +199,87 @@ test("a removed marketplace is not resurrected by an in-flight refresh", async (
     fs.rmSync(f.home, { recursive: true });
   }
 });
+
+test("an installed skill reports upstream changes, updates in one step, and restores", () => {
+  const f = fixture();
+  try {
+    const skillId = f.marketplaces.catalogue(f.id)[0].id,
+      preview = f.marketplaces.preview(f.id, skillId);
+    f.marketplaces.install(f.id, skillId, preview.hash, ["codex"]);
+    assert.deepEqual(
+      f.marketplaces.updates().map(({ name, update, edited }) => ({
+        name,
+        update,
+        edited,
+      })),
+      [{ name: "sample", update: false, edited: false }],
+    );
+    fs.appendFileSync(path.join(f.directory, "SKILL.md"), "New step\n");
+    fs.writeFileSync(path.join(f.directory, "extra.md"), "Added file\n");
+    fs.rmSync(path.join(f.directory, "references"), { recursive: true });
+    const [status] = f.marketplaces.updates();
+    assert.equal(status.update, true);
+    const review = f.marketplaces.updatePreview("sample");
+    assert.deepEqual(
+      review.files.map(({ file, change }) => [file, change]),
+      [
+        ["SKILL.md", "changed"],
+        ["extra.md", "added"],
+        ["references/example.txt", "removed"],
+      ],
+    );
+    assert.match(review.files[0].patch, /\+New step/);
+    assert.deepEqual(
+      f.marketplaces.applyUpdates([{ name: "sample", hash: "stale" }]).failed
+        .length,
+      1,
+    );
+    const result = f.marketplaces.applyUpdates([
+      { name: "sample", hash: review.hash },
+    ]);
+    assert.deepEqual(result, { updated: ["sample"], failed: [] });
+    const canonical = path.join(f.library.shared, "sample");
+    assert.match(
+      fs.readFileSync(path.join(canonical, "SKILL.md"), "utf8"),
+      /New step/,
+    );
+    assert.equal(fs.existsSync(path.join(canonical, "references")), false);
+    assert.equal(
+      fs.realpathSync(path.join(f.home, ".agents", "skills", "sample")),
+      canonical,
+    );
+    assert.equal(f.marketplaces.updates()[0].update, false);
+    fs.appendFileSync(path.join(canonical, "SKILL.md"), "Local edit\n");
+    assert.equal(f.marketplaces.updates()[0].edited, true);
+    fs.writeFileSync(
+      path.join(canonical, "SKILL.md"),
+      fs.readFileSync(path.join(f.directory, "SKILL.md")),
+    );
+    const latest = f.library.history().find((o) => o.status === "committed")!;
+    assert.equal(latest.label, "Update marketplace skill");
+    f.library.restore(latest.id);
+    assert.match(
+      fs.readFileSync(path.join(canonical, "SKILL.md"), "utf8"),
+      /^((?!New step)[\s\S])*$/,
+    );
+    assert.equal(f.marketplaces.updates()[0].update, true);
+  } finally {
+    fs.rmSync(f.home, { recursive: true });
+  }
+});
+
+test("a skill that is no longer one shared copy is not offered an update", () => {
+  const f = fixture();
+  try {
+    const skillId = f.marketplaces.catalogue(f.id)[0].id,
+      preview = f.marketplaces.preview(f.id, skillId);
+    f.marketplaces.install(f.id, skillId, preview.hash, ["codex"]);
+    fs.appendFileSync(path.join(f.directory, "SKILL.md"), "New step\n");
+    const link = path.join(f.home, ".agents", "skills", "sample");
+    fs.rmSync(link);
+    fs.cpSync(path.join(f.library.shared, "sample"), link, { recursive: true });
+    assert.equal(f.marketplaces.updates()[0].update, false);
+  } finally {
+    fs.rmSync(f.home, { recursive: true });
+  }
+});

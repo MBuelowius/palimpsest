@@ -13,8 +13,8 @@ import {
 import { api, type SyncPlan } from "./api";
 import type { Tool } from "../server/library";
 import type { Harness } from "../server/harnesses";
-import { toolLabel, sourceLabel } from "../shared/harnesses";
-import { HarnessChoice } from "./HarnessChoice";
+import { toolName, sourceName } from "../shared/harnesses";
+import { HarnessChoice, defaultTools } from "./HarnessChoice";
 import { skillIssueText } from "./skillCopy";
 
 export function SyncSkills({
@@ -76,11 +76,7 @@ export function SyncSkills({
         size="sm"
         variant="outline"
         onClick={() => {
-          setTools(
-            harnesses
-              .filter((harness) => harness.detected)
-              .map((harness) => harness.id),
-          );
+          setTools(defaultTools(harnesses));
           setOpen(true);
           setPreview(undefined);
           setError("");
@@ -149,10 +145,8 @@ export function SyncSkills({
                       <strong>{plan.name}</strong>
                       <small>
                         {plan.files} {plan.files === 1 ? "file" : "files"} ·
-                        from {sourceLabel[plan.source]} →{" "}
-                        {preview.tools
-                          .map((tool) => toolLabel[tool])
-                          .join(", ")}
+                        from {sourceName(plan.source)} →{" "}
+                        {preview.tools.map((tool) => toolName(tool)).join(", ")}
                       </small>
                     </span>
                   </label>

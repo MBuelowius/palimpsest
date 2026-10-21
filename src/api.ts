@@ -3,7 +3,10 @@ import type {
   CatalogueSkill,
   Marketplaces,
 } from "../server/marketplaces";
+import type { HostedSkill } from "../server/skillsMd";
 export type MarketplacePreview = ReturnType<Marketplaces["preview"]>;
+export type SkillUpdate = ReturnType<Marketplaces["updates"]>[number];
+export type UpdatePreview = ReturnType<Marketplaces["updatePreview"]>;
 export type { Marketplace, CatalogueSkill };
 import type { Skill, SkillLibrary, Tool, Operation } from "../server/library";
 import type { installedAgents, runReview } from "../server/review";
@@ -48,6 +51,16 @@ async function request<T>(
 }
 const skillUrl = (name: string) => "/api/skills/" + encodeURIComponent(name);
 export const api = {
+  skillsMdCatalogue: () => request<HostedSkill[]>("/api/skills-md"),
+  skillsMdInstructions: (slug: string) =>
+    request<{ content: string }>("/api/skills-md/" + encodeURIComponent(slug)),
+  installs: (repo: string, skills: string[]) =>
+    request<Record<string, number>>(
+      "/api/installs?repo=" +
+        encodeURIComponent(repo) +
+        "&skills=" +
+        encodeURIComponent(skills.join(",")),
+    ),
   reviewAgents: () => request<ReviewAgent[]>("/api/review/agents"),
   reviewSetup: (agent: Tool) =>
     request<ReviewReport>("/api/review", "POST", { agent }),
@@ -77,6 +90,17 @@ export const api = {
       "POST",
       { hash: preview.hash, tools },
     ),
+  addAccount: (tool: string, name: string, folder: string) =>
+    request("/api/accounts", "POST", { tool, name, folder }),
+  removeAccount: (id: string) =>
+    request("/api/accounts/" + encodeURIComponent(id), "DELETE"),
+  updates: () => request<SkillUpdate[]>("/api/updates"),
+  updatePreview: (name: string) =>
+    request<UpdatePreview>("/api/updates/" + encodeURIComponent(name)),
+  applyUpdates: (updates: { name: string; hash: string }[]) =>
+    request<ReturnType<Marketplaces["applyUpdates"]>>("/api/updates", "POST", {
+      updates,
+    }),
   inventory: () => request<InventoryView>("/api/inventory"),
   detail: (name: string) => request<Detail>(skillUrl(name)),
   files: (name: string, source: string) =>

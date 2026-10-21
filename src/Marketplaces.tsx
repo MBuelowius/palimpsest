@@ -1,15 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import {
-  Plus,
-  Search,
-  Loader2,
-  ChevronRight,
-  Store,
-  RefreshCw,
-  ArrowLeft,
-} from "lucide-react";
+import { Plus, Loader2, RefreshCw, ArrowLeft, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -21,14 +13,19 @@ import {
 } from "@/components/ui/dialog";
 import {
   api,
+  type InventoryView,
   type Marketplace,
-  type CatalogueSkill,
   type MarketplacePreview,
+  type SkillUpdate,
 } from "./api";
+import { toolName } from "../shared/harnesses";
 import type { Tool } from "../server/library";
 import type { Harness } from "../server/harnesses";
-import { HarnessChoice } from "./HarnessChoice";
+import { defaultTools } from "./HarnessChoice";
+import { InstallControl } from "./InstallControl";
 import { skillIssueText } from "./skillCopy";
+import { MarketplaceCatalog } from "./MarketplaceCatalog";
+import { ProductHeader } from "./ProductHeader";
 
 const MarkdownContent = lazy(() =>
   import("./MarkdownContent").then((module) => ({
@@ -36,31 +33,38 @@ const MarkdownContent = lazy(() =>
   })),
 );
 
+const list = (items: string[]) =>
+  items.length < 2
+    ? items.join("")
+    : items.slice(0, -1).join(", ") + " and " + items.at(-1);
+
 export function MarketplacesPage({
   harnesses,
+  skills,
+  updates,
   onInstalled,
+  onOpenSkill,
+  onUpdate,
 }: {
   harnesses: Harness[];
+  skills: InventoryView["skills"];
+  updates: SkillUpdate[];
   onInstalled: () => Promise<void>;
+  onOpenSkill: (name: string) => void;
+  onUpdate: (name: string) => void;
 }) {
   const [sources, setSources] = useState<Marketplace[]>([]);
-  const [selected, setSelected] = useState("");
-  const [skills, setSkills] = useState<CatalogueSkill[]>([]);
-  const [catalogueLoading, setCatalogueLoading] = useState(false);
-  const [query, setQuery] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<MarketplacePreview | null>(null);
+  const [installs, setInstalls] = useState<number>();
   const previewHeading = useRef<HTMLHeadingElement>(null);
   const openedSkill = useRef<string | undefined>(undefined);
-  const [tools, setTools] = useState<Tool[]>(() =>
-    harnesses
-      .filter((harness) => harness.detected)
-      .map((harness) => harness.id),
-  );
+  const openLink = useRef<HTMLButtonElement>(null);
+  const [tools, setTools] = useState<Tool[]>(() => defaultTools(harnesses));
   useEffect(() => {
     if (preview) previewHeading.current?.focus();
     else if (openedSkill.current)
@@ -73,34 +77,26 @@ export function MarketplacesPage({
       );
   }, [preview?.id]);
   useEffect(() => {
+    setInstalls(undefined);
+    if (!preview) return;
+    let active = true;
+    api
+      .installs(preview.source.repo, [preview.path.split("/").pop()!])
+      .then((counts) => active && setInstalls(Object.values(counts)[0]))
+      // Install counts are an extra, so a failed lookup just omits the figure.
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [preview?.id]);
+  useEffect(() => {
     api
       .marketplaces()
       .then((list) => {
         setSources(list);
-        setSelected(list[0]?.id ?? "");
       })
       .catch((e) => setError(e.message));
   }, []);
-  useEffect(() => {
-    let active = true;
-    setSkills([]);
-    setCatalogueLoading(!!selected);
-    if (selected)
-      api
-        .catalogue(selected)
-        .then((list) => {
-          if (active) setSkills(list);
-        })
-        .catch((e) => {
-          if (active) setError(e.message);
-        })
-        .finally(() => {
-          if (active) setCatalogueLoading(false);
-        });
-    return () => {
-      active = false;
-    };
-  }, [selected]);
   async function add(value: string) {
     setBusy(true);
     setError("");
@@ -126,8 +122,6 @@ export function MarketplacesPage({
       }
       setSources(await api.marketplaces());
       if (lastSource) {
-        setSelected(lastSource.id);
-        setSkills(await api.catalogue(lastSource.id));
         const ready = entries.length - failed.length;
         setMessage(
           `${ready} ${ready === 1 ? "collection" : "collections"} ready to browse.`,
@@ -148,11 +142,14 @@ export function MarketplacesPage({
     try {
       const updated = await api.refreshMarketplace(source.id);
       setSources(await api.marketplaces());
-      setSkills(await api.catalogue(source.id));
+      await onInstalled();
+      const outdated = (await api.updates()).filter((item) => item.update);
       setMessage(
-        updated.commit === source.commit
-          ? "This collection is up to date."
-          : "New skills are ready to browse. Skills you’ve already added stay as they are.",
+        outdated.length
+          ? `${outdated.length} of your skills ${outdated.length === 1 ? "has an update" : "have updates"}. Open My skills to review ${outdated.length === 1 ? "it" : "them"}.`
+          : updated.commit === source.commit
+            ? "This collection is up to date."
+            : "New skills are ready to browse. Skills you’ve already added stay as they are.",
       );
     } catch (error) {
       setError((error as Error).message);
@@ -166,49 +163,48 @@ export function MarketplacesPage({
     setError("");
     try {
       await api.installMarketplaceSkill(preview, tools);
-      setMessage(preview.name + " added to your library and selected apps.");
-      setPreview(null);
       await onInstalled();
+      // The install button is replaced by the installed state, so focus follows it.
+      requestAnimationFrame(() => openLink.current?.focus());
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   }
-  const current = sources.find((source) => source.id === selected);
-  const filtered = skills.filter((skill) =>
-    (skill.name + " " + skill.description)
-      .toLowerCase()
-      .includes(query.toLowerCase()),
-  );
-  if (preview) {
-    const fileUrl = new URL(
-      preview.path.split("/").map(encodeURIComponent).join("/") + "/SKILL.md",
-      `https://github.com/${preview.source.repo}/blob/${preview.source.commit}/`,
-    ).href;
-    return (
-      <section
-        className="skill-reader marketplace-skill-page"
-        aria-labelledby="discovered-skill-title"
-      >
-        <div className="reader-actions">
-          <Button
-            variant="ghost"
-            disabled={busy}
-            onClick={() => setPreview(null)}
-          >
-            <ArrowLeft size={16} />
-            Back to Discover
-          </Button>
-        </div>
-        <header className="detail-header">
-          <h1 id="discovered-skill-title" ref={previewHeading} tabIndex={-1}>
-            {preview.name}
-          </h1>
-          <p className="skill-description">
-            {preview.description || "No description yet."}
-          </p>
-          <p className="muted">
+  const existing =
+      preview && skills.find((skill) => skill.name === preview.name),
+    origin = preview && updates.find((item) => item.name === preview.name),
+    fromHere =
+      !!origin &&
+      origin.source === preview?.source.id &&
+      origin.skillId === preview?.id;
+  const fileUrl = preview
+    ? new URL(
+        preview.path.split("/").map(encodeURIComponent).join("/") + "/SKILL.md",
+        `https://github.com/${preview.source.repo}/blob/${preview.source.commit}/`,
+      ).href
+    : "";
+  const skillPreview = preview ? (
+    <section
+      className="skill-reader marketplace-skill-page"
+      aria-labelledby="discovered-skill-title"
+    >
+      <div className="reader-actions">
+        <Button
+          variant="ghost"
+          disabled={busy}
+          onClick={() => setPreview(null)}
+        >
+          <ArrowLeft size={16} />
+          Back to marketplace
+        </Button>
+      </div>
+      <ProductHeader
+        name={preview.name}
+        description={preview.description}
+        source={
+          <>
             From{" "}
             <a
               className="text-action"
@@ -218,312 +214,298 @@ export function MarketplacesPage({
             >
               {preview.source.repo}
             </a>
-          </p>
-        </header>
-        {!!preview.issues.length && (
-          <div className="review-notes">
-            <h2>Check before adding</h2>
-            {preview.issues.map((issue) => (
-              <p key={issue}>{skillIssueText(issue)}</p>
-            ))}
-          </div>
-        )}
-        <section
-          className="instructions-section"
-          aria-labelledby="discovered-instructions-title"
-        >
-          <div className="section-heading">
-            <h2 id="discovered-instructions-title">What this skill does</h2>
-          </div>
-          <Suspense fallback={<p className="muted">Loading instructions…</p>}>
-            <MarkdownContent
-              content={preview.content}
-              files={[]}
-              fileName="SKILL.md"
-              resourceBaseUrl={fileUrl}
-            />
-          </Suspense>
-        </section>
-        <section
-          className="included-files"
-          aria-labelledby="included-files-title"
-        >
-          <h2 id="included-files-title">Included files</h2>
-          <ul>
-            {preview.files.map((file) => (
-              <li key={file}>
-                <a
-                  href={
-                    new URL(
-                      file.split("/").map(encodeURIComponent).join("/"),
-                      fileUrl,
-                    ).href
-                  }
-                  target="_blank"
-                  rel="noreferrer"
+          </>
+        }
+        facts={[
+          [
+            "Installs",
+            installs === undefined
+              ? ""
+              : new Intl.NumberFormat("en", { notation: "compact" }).format(
+                  installs,
+                ),
+          ],
+          ["Files", String(preview.files.length)],
+          [
+            "To check",
+            preview.issues.length ? String(preview.issues.length) : "",
+          ],
+        ]}
+        headingRef={previewHeading}
+        headingId="discovered-skill-title"
+        action={
+          existing ? (
+            <div className="install-panel">
+              <p role="status" className="install-status">
+                {fromHere ? (
+                  <>
+                    <Check size={15} />
+                    Installed
+                  </>
+                ) : (
+                  "A skill with this name is already in your library"
+                )}
+                {existing.tools.length > 0 &&
+                  ` · ${list(existing.tools.map((tool) => toolName(tool)))}`}
+              </p>
+              {fromHere && origin.update && (
+                <p className="install-update">
+                  <Badge variant="secondary">Update available</Badge>
+                  The collection has a newer version.
+                </p>
+              )}
+              <div className="install-actions">
+                {fromHere && origin.update && (
+                  <Button
+                    className="store-add"
+                    onClick={() => onUpdate(preview.name)}
+                  >
+                    Review update
+                  </Button>
+                )}
+                <Button
+                  ref={openLink}
+                  className="store-add"
+                  variant={fromHere && origin.update ? "secondary" : "default"}
+                  onClick={() => onOpenSkill(preview.name)}
                 >
-                  {file}
-                </a>
-              </li>
-            ))}
-          </ul>
-          <p className="muted">Adding a skill does not run its scripts.</p>
-        </section>
-        <section className="install-apps" aria-labelledby="install-apps-title">
-          <h2 id="install-apps-title">Use in these apps</h2>
-          <HarnessChoice
-            harnesses={harnesses}
-            tools={tools}
-            setTools={setTools}
-            disabled={busy}
+                  Open in My skills
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="install-panel">
+              <InstallControl
+                harnesses={harnesses}
+                tools={tools}
+                setTools={setTools}
+                busy={busy}
+                installable={preview.installable}
+                onInstall={() => void install()}
+              />
+              {error && (
+                <p role="alert" className="form-error">
+                  {error}
+                </p>
+              )}
+            </div>
+          )
+        }
+      />
+      {!!preview.issues.length && (
+        <div className="review-notes">
+          <h2>Check before adding</h2>
+          {preview.issues.map((issue) => (
+            <p key={issue}>{skillIssueText(issue)}</p>
+          ))}
+        </div>
+      )}
+      <section
+        className="instructions-section"
+        aria-labelledby="discovered-instructions-title"
+      >
+        <div className="section-heading">
+          <h2 id="discovered-instructions-title">What this skill does</h2>
+        </div>
+        <Suspense fallback={<p className="muted">Loading instructions…</p>}>
+          <MarkdownContent
+            content={preview.content}
+            files={[]}
+            fileName="SKILL.md"
+            resourceBaseUrl={fileUrl}
           />
-          {error && (
-            <p role="alert" className="form-error">
-              {error}
-            </p>
-          )}
-          <div className="inline-actions">
-            <Button
-              disabled={busy || !preview.installable || !tools.length}
-              onClick={() => void install()}
-            >
-              {busy && <Loader2 size={15} className="spin" />}Add to library
-            </Button>
-          </div>
-        </section>
+        </Suspense>
       </section>
-    );
-  }
+      <section
+        className="included-files"
+        aria-labelledby="included-files-title"
+      >
+        <h2 id="included-files-title">Included files</h2>
+        <ul>
+          {preview.files.map((file) => (
+            <li key={file}>
+              <a
+                href={
+                  new URL(
+                    file.split("/").map(encodeURIComponent).join("/"),
+                    fileUrl,
+                  ).href
+                }
+                target="_blank"
+                rel="noreferrer"
+              >
+                {file}
+              </a>
+            </li>
+          ))}
+        </ul>
+        <p className="muted">Adding a skill does not run its scripts.</p>
+      </section>
+    </section>
+  ) : null;
   return (
-    <section className="marketplaces">
-      <div className="marketplace-actions">
-        <p className="muted">
-          Browse a collection, find a useful skill, and add it to your apps.
-        </p>
-        <Button
-          onClick={() => {
+    <>
+      {skillPreview}
+      <section className="marketplaces" hidden={!!preview}>
+        {error && !addOpen && !preview && (
+          <p role="alert" className="message error">
+            {error}
+          </p>
+        )}
+        {message && (
+          <p role="status" className="message success">
+            {message}
+          </p>
+        )}
+        <MarketplaceCatalog
+          sources={sources}
+          skills={skills}
+          updates={updates}
+          onManageSources={() => {
             setError("");
             setAddOpen(true);
           }}
-          size="sm"
+          onRepositorySkill={async (sourceId, skillId) => {
+            openedSkill.current = skillId;
+            setTools(defaultTools(harnesses));
+            setPreview(await api.marketplacePreview(sourceId, skillId));
+          }}
+        />
+        <Dialog
+          open={addOpen}
+          onOpenChange={(open) => {
+            if (!busy) setAddOpen(open);
+          }}
         >
-          <Plus size={15} />
-          Add collection
-        </Button>
-      </div>
-      {error && !addOpen && !preview && (
-        <p role="alert" className="message error">
-          {error}
-        </p>
-      )}
-      {message && (
-        <p role="status" className="message success">
-          {message}
-        </p>
-      )}
-      <div className="marketplace-layout">
-        <aside className="marketplace-sources" aria-label="Skill collections">
-          {sources.map((source) => (
-            <button
-              key={source.id}
-              className={selected === source.id ? "source-selected" : ""}
-              disabled={busy}
-              aria-pressed={selected === source.id}
-              onClick={() => {
-                setSelected(source.id);
-                setError("");
-                setMessage("");
-              }}
+          <DialogContent className="marketplace-add">
+            <DialogHeader>
+              <DialogTitle>Manage collections</DialogTitle>
+              <DialogDescription>
+                Paste the public GitHub link for a collection of skills. You can
+                add several links, one per line.
+              </DialogDescription>
+            </DialogHeader>
+            <section
+              className="collection-management"
+              aria-label="Added collections"
             >
-              <Store size={16} />
-              <span>{source.repo}</span>
-            </button>
-          ))}
-          <h3>Collections to try</h3>
-          <button
-            disabled={
-              busy ||
-              sources.some((s) => s.repo.toLowerCase() === "anthropics/skills")
-            }
-            onClick={() => void add("anthropics/skills")}
-          >
-            Anthropic skills
-            <Plus size={14} />
-          </button>
-          <button
-            disabled={
-              busy ||
-              sources.some((s) => s.repo.toLowerCase() === "openai/skills")
-            }
-            onClick={() => void add("openai/skills")}
-          >
-            OpenAI skills
-            <Plus size={14} />
-          </button>
-          {busy && !preview && (
-            <p className="muted">
-              <Loader2 size={14} className="spin" /> Loading collection…
-            </p>
-          )}
-        </aside>
-        <div className="marketplace-catalogue">
-          {current ? (
-            <>
-              <div className="catalogue-heading">
-                <div>
-                  <h2>{current.repo}</h2>
-                  <p className="muted">
-                    {skills.length} {skills.length === 1 ? "skill" : "skills"} ·
-                    Checked{" "}
-                    {new Date(
-                      current.refreshedAt ?? current.addedAt,
-                    ).toLocaleDateString()}
-                  </p>
+              <div className="collection-management-row">
+                <span>
+                  skills.md<small>Built-in catalog</small>
+                </span>
+              </div>
+              {sources.map((source) => (
+                <div className="collection-management-row" key={source.id}>
+                  <span>
+                    {source.repo}
+                    <small>
+                      Checked{" "}
+                      {new Date(
+                        source.refreshedAt ?? source.addedAt,
+                      ).toLocaleDateString()}
+                    </small>
+                  </span>
+                  <div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => void refreshSource(source)}
+                    >
+                      <RefreshCw size={14} />
+                      Refresh
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        setError("");
+                        try {
+                          await api.removeMarketplace(source.id);
+                          setSources(await api.marketplaces());
+                        } catch (error) {
+                          setError((error as Error).message);
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
                 </div>
-                <div className="catalogue-actions">
+              ))}
+              <div className="inline-actions">
+                {!sources.some(
+                  (source) => source.repo.toLowerCase() === "anthropics/skills",
+                ) && (
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={busy || catalogueLoading}
-                    onClick={() => void refreshSource(current)}
+                    disabled={busy}
+                    onClick={() => void add("anthropics/skills")}
                   >
-                    <RefreshCw size={14} className={busy ? "spin" : ""} />
-                    Check for new skills
+                    <Plus size={14} />
+                    Add Anthropic
                   </Button>
+                )}
+                {!sources.some(
+                  (source) => source.repo.toLowerCase() === "openai/skills",
+                ) && (
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      setError("");
-                      try {
-                        await api.removeMarketplace(current.id);
-                        const list = await api.marketplaces();
-                        setSources(list);
-                        setSelected(list[0]?.id ?? "");
-                      } catch (e) {
-                        setError((e as Error).message);
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
+                    onClick={() => void add("openai/skills")}
                   >
-                    Remove collection
+                    <Plus size={14} />
+                    Add OpenAI
                   </Button>
-                </div>
-              </div>
-              <div className="search-field">
-                <Search size={16} />
-                <Input
-                  aria-label="Search skills in this collection"
-                  placeholder="What do you want help with?"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </div>
-              <div className="marketplace-skill-list">
-                {filtered.map((skill) => (
-                  <button
-                    key={skill.id}
-                    data-catalogue-skill={skill.id}
-                    disabled={busy}
-                    onClick={async () => {
-                      openedSkill.current = skill.id;
-                      setError("");
-                      try {
-                        setTools(
-                          harnesses
-                            .filter((harness) => harness.detected)
-                            .map((harness) => harness.id),
-                        );
-                        setPreview(
-                          await api.marketplacePreview(current.id, skill.id),
-                        );
-                      } catch (e) {
-                        setError((e as Error).message);
-                      }
-                    }}
-                  >
-                    <span>
-                      <strong>{skill.name}</strong>
-                      <small>
-                        {skill.description || "No description yet."}
-                      </small>
-                    </span>
-                    <ChevronRight size={15} />
-                  </button>
-                ))}
-                {!filtered.length && (
-                  <p className="empty" role="status">
-                    {catalogueLoading
-                      ? "Loading skills…"
-                      : "No matching skills."}
-                  </p>
                 )}
               </div>
-            </>
-          ) : (
-            <div className="empty">
-              <Store size={24} />
-              <p>
-                Choose a collection to find skills, or add one you already know.
+            </section>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void add(url);
+              }}
+            >
+              <label className="field-label" htmlFor="marketplace-url">
+                Collection links
+              </label>
+              <Textarea
+                id="marketplace-url"
+                aria-label="Collection links"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder={
+                  "https://github.com/owner/repository\nopenai/skills"
+                }
+                rows={4}
+                required
+                disabled={busy}
+              />
+              <p className="field-hint">
+                Links that work are saved. Any that couldn’t be added stay here
+                so you can correct them.
               </p>
-            </div>
-          )}
-        </div>
-      </div>
-      <Dialog
-        open={addOpen}
-        onOpenChange={(open) => {
-          if (!busy) setAddOpen(open);
-        }}
-      >
-        <DialogContent className="marketplace-add">
-          <DialogHeader>
-            <DialogTitle>Add a skill collection</DialogTitle>
-            <DialogDescription>
-              Paste the public GitHub link for a collection of skills. You can
-              add several links, one per line.
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void add(url);
-            }}
-          >
-            <label className="field-label" htmlFor="marketplace-url">
-              Collection links
-            </label>
-            <Textarea
-              id="marketplace-url"
-              aria-label="Collection links"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder={"https://github.com/owner/repository\nopenai/skills"}
-              rows={4}
-              required
-              disabled={busy}
-            />
-            <p className="field-hint">
-              Links that work are saved. Any that couldn’t be added stay here so
-              you can correct them.
-            </p>
-            {error && (
-              <p className="form-error" role="alert">
-                {error}
-              </p>
-            )}
-            <DialogFooter>
-              <Button type="submit" disabled={busy || !url.trim()}>
-                {busy && <Loader2 className="spin" size={15} />}{" "}
-                {busy ? "Loading…" : "Add collection"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </section>
+              {error && (
+                <p className="form-error" role="alert">
+                  {error}
+                </p>
+              )}
+              <DialogFooter>
+                <Button type="submit" disabled={busy || !url.trim()}>
+                  {busy && <Loader2 className="spin" size={15} />}{" "}
+                  {busy ? "Loading…" : "Add collection"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </section>
+    </>
   );
 }

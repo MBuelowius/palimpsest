@@ -1,11 +1,12 @@
 # Palimpsest
 
-Palimpsest is a local skill library for Claude, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot, and Windsurf / Devin. Compare skill packages, move a chosen version into a shared library, and manage which tools use it through a web UI or CLI.
+Palimpsest is a skill marketplace for discovering skills across skills.md and public GitHub collections. Search the combined catalog, browse categories, and read instructions before choosing a skill. My skills holds your personal library for Claude, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot, and Windsurf / Devin.
 
 This is an early project. Review previews before applying changes and keep an independent backup of your skills.
 
 ## What it does
 
+- Opens into the marketplace, with search across skills.md and added GitHub collections. Hosted skills provide instruction previews; GitHub packages can be previewed and added to your local library. Skills added from a collection show an update when the collection has a newer version; Check for updates in My skills refreshes the collections, and each update shows its changes first and is saved in Backups.
 - Detects harnesses from configuration folders, executable locations, macOS app bundles, and Copilot extensions. Locations shows the evidence; Refresh checks again.
 - Finds personal skills in each supported harness's default skill folders, including `~/.agents/skills` and Devin's additional `~/.config/devin/skills` folder.
 - Compares whole packages, including references and scripts, and flags differing versions.
@@ -71,6 +72,8 @@ palimpsest history
 ```
 
 `share`, `share-identical`, and `marketplace install` preview changes unless `--apply` is supplied. `enable`, `disable`, and `restore` apply immediately. Restoring is limited to the latest operation and refuses to overwrite later external edits.
+
+Settings can add accounts: another config folder for the same app, such as `~/.claude-work`, which receives skills in its `skills` folder and shows up next to the app wherever you choose where to use a skill. Accounts are never selected by default, and removing one never deletes files.
 
 Sharing, syncing, and marketplace installation default to the detected harnesses. Use `--tools cursor,gemini,opencode` to override detection, or choose harnesses manually in the UI. Configuration folders may remain after an uninstall, so detection is evidence of a local setup rather than a runtime health check. Harnesses can also discover skills in other apps' folders; Palimpsest manages the explicit links shown in its library.
 

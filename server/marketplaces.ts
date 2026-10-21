@@ -3,6 +3,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createTwoFilesPatch } from "diff";
 import {
   LibraryError,
   SkillLibrary,
@@ -75,6 +76,8 @@ async function cloneRepository(repo: string, directory: string) {
   });
   return stdout.trim();
 }
+const skillId = (relative: string) =>
+  createHash("sha256").update(relative).digest("hex").slice(0, 16);
 export class Marketplaces {
   readonly root: string;
   constructor(
@@ -196,10 +199,7 @@ export class Marketplaces {
           const relative = path.relative(root, directory),
             info = metadata(fs.readFileSync(location, "utf8"));
           skills.push({
-            id: createHash("sha256")
-              .update(relative)
-              .digest("hex")
-              .slice(0, 16),
+            id: skillId(relative),
             name: path.basename(directory),
             path: relative,
             description: info.description,
@@ -237,6 +237,120 @@ export class Marketplaces {
       path.join(this.root, id, preview.path),
       hash,
       tools,
+      { source: id, path: preview.path },
     );
+  }
+  // Skills added from a collection, with whether the collection's current
+  // snapshot differs from what was installed and whether the copy was edited.
+  updates() {
+    const sources = new Map(this.list().map((s) => [s.id, s.repo])),
+      skills = this.library.inventory().skills;
+    return Object.entries(this.library.origins()).flatMap(([name, origin]) => {
+      const skill = skills.find((s) => s.name === name),
+        shared = skill?.variants.find((v) => v.tool === "shared"),
+        directory = path.join(this.root, origin.source, origin.path);
+      if (!skill || !shared || !sources.has(origin.source)) return [];
+      const upstream = fs.existsSync(path.join(directory, "SKILL.md"))
+        ? tree(directory)
+        : undefined;
+      return [
+        {
+          name,
+          source: origin.source,
+          repo: sources.get(origin.source)!,
+          skillId: skillId(origin.path),
+          update:
+            skill.status === "shared" &&
+            !!upstream &&
+            !upstream.links.length &&
+            upstream.hash !== origin.hash,
+          edited: shared.hash !== origin.hash,
+          hash: upstream?.hash ?? origin.hash,
+        },
+      ];
+    });
+  }
+  private pending(name: string) {
+    const status = this.updates().find((u) => u.name === name && u.update);
+    if (!status) throw new LibraryError("No update is available.", 404);
+    const origin = this.library.origins()[name];
+    return {
+      status,
+      origin,
+      upstream: path.join(this.root, origin.source, origin.path),
+      installed: this.library
+        .skill(name)
+        .variants.find((v) => v.tool === "shared")!.realPath,
+    };
+  }
+  updatePreview(name: string) {
+    const { status, origin, upstream, installed } = this.pending(name);
+    const before = new Map(
+        tree(installed).files.map((file) => [
+          file,
+          fs.readFileSync(path.join(installed, file)),
+        ]),
+      ),
+      after = new Map(
+        tree(upstream).files.map((file) => [
+          file,
+          fs.readFileSync(path.join(upstream, file)),
+        ]),
+      );
+    const text = (bytes?: Buffer) =>
+      !bytes
+        ? ""
+        : bytes.length > 200 * 1024 || bytes.includes(0)
+          ? undefined
+          : bytes.toString("utf8");
+    const files = [...new Set([...before.keys(), ...after.keys()])]
+      .sort()
+      .filter((file) => {
+        const old = before.get(file),
+          next = after.get(file);
+        return !old || !next || !old.equals(next);
+      })
+      .map((file) => {
+        const old = text(before.get(file)),
+          next = text(after.get(file));
+        return {
+          file,
+          change: !before.has(file)
+            ? ("added" as const)
+            : !after.has(file)
+              ? ("removed" as const)
+              : ("changed" as const),
+          patch:
+            old === undefined || next === undefined
+              ? ""
+              : createTwoFilesPatch(file, file, old, next, "", "", {
+                  context: 3,
+                }),
+        };
+      });
+    return {
+      name,
+      repo: this.source(origin.source).repo,
+      edited: status.edited,
+      hash: status.hash,
+      files,
+    };
+  }
+  update(name: string, hash: string) {
+    return this.library.updatePackage(name, this.pending(name).upstream, hash);
+  }
+  applyUpdates(items: { name: string; hash: string }[]) {
+    const updated: string[] = [],
+      failed: { name: string; reason: string }[] = [];
+    for (const { name, hash } of items) {
+      try {
+        this.update(name, hash);
+        updated.push(name);
+      } catch (error) {
+        if (!(error instanceof LibraryError)) throw error;
+        failed.push({ name, reason: error.message });
+      }
+    }
+    return { updated, failed };
   }
 }

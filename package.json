@@ -46,7 +46,7 @@
     "typescript": "~5.9.3",
     "vite": "^7.3.0"
   },
-  "description": "A local skill library for Claude and Codex with package comparisons, shared links, and backups.",
+  "description": "A skill marketplace with cross-source discovery, instruction previews, and a personal skill library.",
   "license": "MIT",
   "author": "Maximilian Bülowius",
   "repository": {
