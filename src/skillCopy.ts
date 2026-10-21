@@ -1,4 +1,4 @@
-import { toolLabel, type Tool } from "../shared/harnesses";
+import { toolName } from "../shared/harnesses";
 
 export function skillIssueText(issue: string): string {
   if (issue === "Missing YAML frontmatter.")
@@ -27,9 +27,10 @@ export function skillIssueText(issue: string): string {
 export function changeDescription(label: string): string {
   const appChange = label.match(/^(Enable|Disable) in (.+)$/);
   if (appChange)
-    return `${appChange[1] === "Enable" ? "Added to" : "Removed from"} ${toolLabel[appChange[2] as Tool] ?? appChange[2]}`;
+    return `${appChange[1] === "Enable" ? "Added to" : "Removed from"} ${toolName(appChange[2])}`;
   if (label === "Edit SKILL.md") return "Edited instructions";
   if (label === "Install marketplace skill") return "Added from a collection";
+  if (label === "Update marketplace skill") return "Updated from a collection";
   if (label === "Create skill") return "Created skill";
   if (label.startsWith("Edit ")) return "Edited " + label.slice("Edit ".length);
   if (label.startsWith("Share with "))

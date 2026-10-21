@@ -2,6 +2,7 @@ import { MarketplacesPage } from "./Marketplaces";
 import { SetupReview } from "./SetupReview";
 import { SettingsPage } from "./SettingsPage";
 import { SkillEditor } from "./SkillEditor";
+import { UpdateDialog } from "./UpdateDialog";
 import {
   useEffect,
   useState,
@@ -54,10 +55,11 @@ import {
   type Plan,
   type FileContent,
   type History,
+  type SkillUpdate,
 } from "./api";
 import type { Harness, Tool } from "../server/harnesses";
-import { toolLabel, sourceLabel } from "../shared/harnesses";
-import { HarnessChoice } from "./HarnessChoice";
+import { toolName, sourceName } from "../shared/harnesses";
+import { HarnessChoice, defaultTools } from "./HarnessChoice";
 import { cn } from "@/lib/utils";
 import { changeDescription, skillIssueText } from "./skillCopy";
 
@@ -90,7 +92,7 @@ export function App() {
   const [layout, setLayout] = useState<"table" | "list">("table");
   const [setupReviewOpen, setSetupReviewOpen] = useState(false);
   const [inventory, setInventory] = useState<InventoryView>(),
-    [view, setView] = useState<View>("library");
+    [view, setView] = useState<View>("marketplaces");
   const [search, setSearch] = useState(""),
     [toolFilter, setToolFilter] = useState("all"),
     [attentionOnly, setAttentionOnly] = useState(false);
@@ -99,18 +101,25 @@ export function App() {
   const [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [loading, setLoading] = useState(true);
+  const [updates, setUpdates] = useState<SkillUpdate[]>([]),
+    [updateNames, setUpdateNames] = useState<string[] | null>(null),
+    [checking, setChecking] = useState(false),
+    [generation, setGeneration] = useState(0);
   const [history, setHistory] = useState<History>([]),
     [restore, setRestore] = useState<History[number]>(),
     [busy, setBusy] = useState(false);
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [items, operations] = await Promise.all([
+      const [items, operations, available] = await Promise.all([
         api.inventory(),
         api.history(),
+        // Update info is an extra: a failed lookup just hides the update notes.
+        api.updates().catch(() => [] as SkillUpdate[]),
       ]);
       setInventory(items);
       setHistory(operations);
+      setUpdates(available);
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -121,6 +130,40 @@ export function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  const outdated = updates.filter((item) => item.update);
+  async function checkForUpdates() {
+    setChecking(true);
+    setNotice("");
+    try {
+      const sources = await api.marketplaces();
+      const failed: string[] = [];
+      for (const source of sources)
+        await api.refreshMarketplace(source.id).catch(() => {
+          failed.push(source.repo);
+        });
+      const available = await api.updates();
+      setUpdates(available);
+      const count = available.filter((item) => item.update).length;
+      setNotice(
+        failed.length
+          ? `Couldn’t check ${failed.join(", ")}. ${count} ${count === 1 ? "update is" : "updates are"} available from the rest.`
+          : count
+            ? `${count} ${count === 1 ? "skill has an update" : "skills have updates"}.`
+            : "Your skills are up to date.",
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setChecking(false);
+    }
+  }
+  function openSkill(name: string) {
+    navigate(() => {
+      setView("library");
+      setSelected(name);
+      setNotice("");
+    });
+  }
   const changed = async (message: string) => {
     setNotice(message);
     await refresh();
@@ -136,10 +179,10 @@ export function App() {
         .includes(search.trim().toLowerCase());
     }) ?? [];
   const title = {
-    library: "Your skills",
+    library: "My skills",
     history: "Backups",
     settings: "Settings",
-    marketplaces: "Discover skills",
+    marketplaces: "Skill marketplace",
   }[view];
   const filtersActive =
     search.trim() !== "" || toolFilter !== "all" || attentionOnly;
@@ -173,22 +216,12 @@ export function App() {
           href="#"
           onClick={(event) => {
             event.preventDefault();
-            changeView("library");
+            changeView("marketplaces");
           }}
         >
           <span>Palimpsest</span>
         </a>
-        <nav aria-label="Library navigation">
-          <button
-            className={cn("nav-item", view === "library" && "nav-active")}
-            onClick={() => changeView("library")}
-            disabled={skillBusy}
-            aria-current={view === "library" ? "page" : undefined}
-          >
-            <Folder size={17} />
-            <span>Skills</span>
-            <span className="nav-count">{inventory?.counts.total ?? "—"}</span>
-          </button>
+        <nav aria-label="Main navigation">
           <button
             className={cn("nav-item", view === "marketplaces" && "nav-active")}
             onClick={() => changeView("marketplaces")}
@@ -196,7 +229,17 @@ export function App() {
             aria-current={view === "marketplaces" ? "page" : undefined}
           >
             <Store size={17} />
-            <span>Discover</span>
+            <span>Marketplace</span>
+          </button>
+          <button
+            className={cn("nav-item", view === "library" && "nav-active")}
+            onClick={() => changeView("library")}
+            disabled={skillBusy}
+            aria-current={view === "library" ? "page" : undefined}
+          >
+            <Folder size={17} />
+            <span>My skills</span>
+            <span className="nav-count">{inventory?.counts.total ?? "—"}</span>
           </button>
           <div className="nav-divider" />
           <button
@@ -234,21 +277,23 @@ export function App() {
                 : view === "settings"
                   ? "Choose where to use your skills and keep them up to date."
                   : view === "marketplaces"
-                    ? "Find a skill for the task you want to do."
+                    ? "Find skills for your next task and add them to your apps."
                     : "Search by name or what you want to do."}
             </p>
           </div>
           <div className="header-actions">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => void refresh()}
-              disabled={loading || skillBusy}
-              aria-label="Refresh library"
-              title="Refresh library"
-            >
-              <RefreshCw size={15} className={loading ? "spin" : ""} />
-            </Button>
+            {view !== "marketplaces" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => void refresh()}
+                disabled={loading || skillBusy}
+                aria-label="Refresh library"
+                title="Refresh library"
+              >
+                <RefreshCw size={15} className={loading ? "spin" : ""} />
+              </Button>
+            )}
             {view === "library" && (
               <Button
                 disabled={!inventory || skillBusy}
@@ -336,12 +381,40 @@ export function App() {
                     Clear filters
                   </Button>
                 )}
+                {!!updates.length && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={checking}
+                    onClick={() => void checkForUpdates()}
+                  >
+                    <RefreshCw size={14} className={checking ? "spin" : ""} />
+                    Check for updates
+                  </Button>
+                )}
               </div>
+              {!!outdated.length && (
+                <div className="update-banner">
+                  <p>
+                    {outdated.length === 1
+                      ? "1 skill has an update."
+                      : `${outdated.length} skills have updates.`}
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      setUpdateNames(outdated.map((item) => item.name))
+                    }
+                  >
+                    {outdated.length === 1 ? "Review update" : "Review updates"}
+                  </Button>
+                </div>
+              )}
               {(toolFilter !== "all" || attentionOnly) && (
                 <p className="browse-context">
                   {attentionOnly
                     ? "Skills needing review"
-                    : `${toolLabel[toolFilter as Tool]} skills`}
+                    : `${toolName(toolFilter as Tool)} skills`}
                 </p>
               )}
               <section
@@ -370,7 +443,12 @@ export function App() {
                     aria-describedby={`skill-description-${skill.name}`}
                   >
                     <span className="skill-name">
-                      <strong>{skill.title}</strong>
+                      <strong>
+                        {skill.title}
+                        {outdated.some((item) => item.name === skill.name) && (
+                          <Badge variant="secondary">Update available</Badge>
+                        )}
+                      </strong>
                       <small id={`skill-description-${skill.name}`}>
                         {skill.description || "No description yet."}
                       </small>
@@ -378,9 +456,7 @@ export function App() {
                     {layout === "table" && (
                       <span className="skill-apps">
                         {skill.tools.length
-                          ? skill.tools
-                              .map((tool) => toolLabel[tool])
-                              .join(", ")
+                          ? skill.tools.map((tool) => toolName(tool)).join(", ")
                           : "Not added to an app yet"}
                       </span>
                     )}
@@ -392,7 +468,7 @@ export function App() {
                     {loading && !inventory
                       ? "Reading your skills…"
                       : inventory?.counts.total === 0
-                        ? "Create a skill or find one in Discover to get started."
+                        ? "Your library is empty. Browse the marketplace to find a skill."
                         : "No matching skills. Try another search."}
                   </Empty>
                 )}
@@ -413,9 +489,11 @@ export function App() {
         )}
         {view === "library" && selected && inventory && (
           <SkillPage
-            key={selected}
+            key={selected + generation}
             ref={skillNavigation}
             name={selected}
+            update={outdated.find((item) => item.name === selected)}
+            onUpdate={() => setUpdateNames([selected])}
             harnesses={inventory.harnesses}
             changed={changed}
             onBusyChange={setSkillBusy}
@@ -431,12 +509,24 @@ export function App() {
             }}
           />
         )}
-        {view === "marketplaces" && inventory && (
+        <div hidden={view !== "marketplaces"}>
           <MarketplacesPage
-            harnesses={inventory.harnesses}
+            harnesses={inventory?.harnesses ?? []}
+            skills={inventory?.skills ?? []}
+            updates={updates}
             onInstalled={refresh}
+            onOpenSkill={openSkill}
+            onUpdate={(name) => setUpdateNames([name])}
           />
-        )}
+        </div>
+        <UpdateDialog
+          names={updateNames}
+          onClose={() => setUpdateNames(null)}
+          onDone={async (message) => {
+            setGeneration((value) => value + 1);
+            await changed(message);
+          }}
+        />
         {view === "history" && (
           <section className="history-list">
             {!history.length ? (
@@ -567,7 +657,11 @@ function SkillPage({
   changed,
   ref,
   onBusyChange,
+  update,
+  onUpdate,
 }: {
+  update?: SkillUpdate;
+  onUpdate: () => void;
   name: string;
   harnesses: Harness[];
   close: () => void;
@@ -594,11 +688,7 @@ function SkillPage({
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [plan, setPlan] = useState<Plan>(),
-    [tools, setTools] = useState<Tool[]>(() =>
-      harnesses
-        .filter((harness) => harness.detected)
-        .map((harness) => harness.id),
-    );
+    [tools, setTools] = useState<Tool[]>(() => defaultTools(harnesses));
   const [pending, setPending] = useState<(() => void) | undefined>(),
     [fileLoading, setFileLoading] = useState(false);
   const dirty = !!file && file.content !== draft;
@@ -633,13 +723,7 @@ function SkillPage({
       .then((next) => {
         if (active) {
           setDetail(next);
-          setTools(
-            next.managed
-              ? next.tools
-              : harnesses
-                  .filter((harness) => harness.detected)
-                  .map((harness) => harness.id),
-          );
+          setTools(next.managed ? next.tools : defaultTools(harnesses));
           setSource(
             next.variants.find((v) => v.tool === "shared")?.id ??
               next.variants[0].id,
@@ -721,7 +805,7 @@ function SkillPage({
     if (!detail) return;
     const updated = await run(
       () => api.enabled(name, tool, enabled, detail.revision),
-      `${name} ${enabled ? "added to" : "removed from"} ${toolLabel[tool]}.`,
+      `${name} ${enabled ? "added to" : "removed from"} ${toolName(tool)}.`,
     );
     if (updated) {
       requestAnimationFrame(() => {
@@ -830,6 +914,14 @@ function SkillPage({
           </p>
         </div>
       </header>
+      {update && (
+        <div className="update-banner">
+          <p>A newer version is available from {update.repo}.</p>
+          <Button size="sm" disabled={busy} onClick={() => guard(onUpdate)}>
+            Review update
+          </Button>
+        </div>
+      )}
       {error && (
         <div className="message error" role="alert">
           <AlertCircle size={16} />
@@ -851,7 +943,7 @@ function SkillPage({
                     <div className="skill-conflict-note">
                       <p>
                         <AlertCircle size={16} /> This skill has different
-                        versions. You’re reading {sourceLabel[source]}.
+                        versions. You’re reading {sourceName(source)}.
                       </p>
                       <Button
                         variant="outline"
@@ -924,7 +1016,7 @@ function SkillPage({
                         >
                           {editableVersions.map((v) => (
                             <option key={v.id} value={v.id}>
-                              {sourceLabel[v.id]}
+                              {sourceName(v.id)}
                             </option>
                           ))}
                         </select>
@@ -986,7 +1078,7 @@ function SkillPage({
                           !file) && (
                           <div className="editor-label">
                             <code>{fileName}</code>
-                            <small>{sourceLabel[source]}</small>
+                            <small>{sourceName(source)}</small>
                           </div>
                         )}
                         {fileLoading ? (
@@ -1052,7 +1144,7 @@ function SkillPage({
                           }
                         >
                           <span>
-                            <strong>{sourceLabel[variant.id]}</strong>
+                            <strong>{sourceName(variant.id)}</strong>
                             <small>
                               {variant.version ? `v${variant.version} · ` : ""}
                               {variant.files}{" "}
@@ -1094,7 +1186,7 @@ function SkillPage({
                     .map((diff) => (
                       <details key={diff.to} className="diff-panel">
                         <summary>
-                          {sourceLabel[diff.from]} → {sourceLabel[diff.to]}:{" "}
+                          {sourceName(diff.from)} → {sourceName(diff.to)}:{" "}
                           {diff.files.length} other files changed
                         </summary>
                         <ul>
@@ -1114,7 +1206,7 @@ function SkillPage({
                       {detail.diffs.map((diff) => (
                         <div key={diff.to}>
                           <h3>
-                            {sourceLabel[diff.from]} → {sourceLabel[diff.to]}
+                            {sourceName(diff.from)} → {sourceName(diff.to)}
                           </h3>
                           <pre>
                             {diff.patch.split("\n").map((line, index) => (
@@ -1224,7 +1316,7 @@ function SkillPage({
                     <section aria-labelledby="share-title">
                       <h3 id="share-title">Use this skill in your apps</h3>
                       <p className="muted">
-                        Choose where you want to use the {sourceLabel[source]}
+                        Choose where you want to use the {sourceName(source)}
                         version. You’ll review any replacements before they
                         happen.
                       </p>
@@ -1260,7 +1352,7 @@ function SkillPage({
               <small>
                 {detail.status === "shared"
                   ? "Edit once to update every app you’ve added."
-                  : `Keep ${sourceLabel[source] ?? "this version"}; previous versions are backed up.`}
+                  : `Keep ${sourceName(source)}; previous versions are backed up.`}
               </small>
             </div>
             <div className="share-controls">
@@ -1289,11 +1381,11 @@ function SkillPage({
               Review app choices
             </h3>
             <p className="muted">
-              Add the {sourceLabel[plan.source]} version to{" "}
+              Add the {sourceName(plan.source)} version to{" "}
               {new Intl.ListFormat("en", {
                 style: "long",
                 type: "conjunction",
-              }).format(plan.tools.map((t) => toolLabel[t]))}
+              }).format(plan.tools.map((t) => toolName(t)))}
               .
             </p>
           </div>
@@ -1309,7 +1401,7 @@ function SkillPage({
                 <strong>Different versions will be backed up</strong>
                 {plan.replaced.map((item) => (
                   <p key={item.path}>
-                    {toolLabel[item.tool as Tool] ?? sourceLabel[item.tool]}
+                    {sourceName(item.tool)}
                     {item.version ? ` v${item.version}` : ""}
                   </p>
                 ))}
@@ -1342,7 +1434,7 @@ function SkillPage({
                     setSource("shared");
                     setFileName("SKILL.md");
                   },
-                  `${name} added to ${plan.tools.map((tool) => toolLabel[tool]).join(" and ")}.`,
+                  `${name} added to ${plan.tools.map((tool) => toolName(tool)).join(" and ")}.`,
                 );
               }}
             >
@@ -1370,20 +1462,11 @@ function CreateDialog({
   const [name, setName] = useState(""),
     [description, setDescription] = useState(""),
     [body, setBody] = useState(""),
-    [tools, setTools] = useState<Tool[]>(() =>
-      harnesses
-        .filter((harness) => harness.detected)
-        .map((harness) => harness.id),
-    ),
+    [tools, setTools] = useState<Tool[]>(() => defaultTools(harnesses)),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   useEffect(() => {
-    if (open)
-      setTools(
-        harnesses
-          .filter((harness) => harness.detected)
-          .map((harness) => harness.id),
-      );
+    if (open) setTools(defaultTools(harnesses));
   }, [open, harnesses]);
   return (
     <Dialog
@@ -1411,7 +1494,7 @@ function CreateDialog({
               setDescription("");
               setBody("");
               await changed(
-                `${name} created and added to ${tools.map((tool) => toolLabel[tool]).join(", ")}.`,
+                `${name} created and added to ${tools.map((tool) => toolName(tool)).join(", ")}.`,
               );
             } catch (e) {
               setError((e as Error).message);

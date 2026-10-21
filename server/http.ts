@@ -3,12 +3,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { SkillLibrary, LibraryError, type Tool } from "./library.ts";
+import type { BaseTool } from "./harnesses.ts";
 
 import { Marketplaces } from "./marketplaces.ts";
+import { SkillsMd } from "./skillsMd.ts";
+import { SkillInstalls } from "./installs.ts";
 import { installedAgents, runReview } from "./review.ts";
 
 export function createServer(library: SkillLibrary, webDir: string) {
   const marketplaces = new Marketplaces(library);
+  const skillsMd = new SkillsMd();
+  const installs = new SkillInstalls();
   let reviewing = false;
   const token = randomBytes(32).toString("hex");
   const send = (res: http.ServerResponse, status: number, data: unknown) => {
@@ -58,6 +63,22 @@ export function createServer(library: SkillLibrary, webDir: string) {
           if (req.headers["content-type"] !== "application/json")
             throw new LibraryError("Expected JSON.", 415);
         }
+        if (url.pathname === "/api/skills-md" && req.method === "GET")
+          return send(res, 200, await skillsMd.catalogue());
+        const hostedMatch = url.pathname.match(
+          /^\/api\/skills-md\/([a-zA-Z0-9_-]+)$/,
+        );
+        if (hostedMatch && req.method === "GET")
+          return send(res, 200, await skillsMd.instructions(hostedMatch[1]));
+        if (url.pathname === "/api/installs" && req.method === "GET")
+          return send(
+            res,
+            200,
+            await installs.lookup(
+              url.searchParams.get("repo") ?? "",
+              (url.searchParams.get("skills") ?? "").split(",").filter(Boolean),
+            ),
+          );
         if (url.pathname === "/api/inventory" && req.method === "GET") {
           const inventory = library.inventory();
           return send(res, 200, {
@@ -141,6 +162,46 @@ export function createServer(library: SkillLibrary, webDir: string) {
         );
         if (refreshMatch && req.method === "POST")
           return send(res, 200, await marketplaces.refresh(refreshMatch[1]));
+        if (url.pathname === "/api/accounts" && req.method === "POST")
+          return send(
+            res,
+            201,
+            library.addAccount(
+              string("tool") as BaseTool,
+              string("name"),
+              string("folder"),
+            ),
+          );
+        const accountMatch = url.pathname.match(/^\/api\/accounts\/([^/]+)$/);
+        if (accountMatch && req.method === "DELETE")
+          return send(
+            res,
+            200,
+            library.removeAccount(decodeURIComponent(accountMatch[1])),
+          );
+        if (url.pathname === "/api/updates" && req.method === "GET")
+          return send(res, 200, marketplaces.updates());
+        const updateMatch = url.pathname.match(/^\/api\/updates\/([^/]+)$/);
+        if (updateMatch && req.method === "GET")
+          return send(
+            res,
+            200,
+            marketplaces.updatePreview(decodeURIComponent(updateMatch[1])),
+          );
+        if (url.pathname === "/api/updates" && req.method === "POST") {
+          const items = body.updates;
+          if (
+            !Array.isArray(items) ||
+            items.length > 200 ||
+            items.some(
+              (item) =>
+                typeof item?.name !== "string" ||
+                typeof item?.hash !== "string",
+            )
+          )
+            throw new LibraryError("Choose updates from the review.");
+          return send(res, 200, marketplaces.applyUpdates(items));
+        }
         if (url.pathname === "/api/marketplaces") {
           if (req.method === "GET") return send(res, 200, marketplaces.list());
           if (req.method === "POST")

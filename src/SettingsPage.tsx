@@ -4,7 +4,9 @@ import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
 import { SyncSkills } from "./SyncSkills";
 import type { InventoryView } from "./api";
-import { harnesses, type Tool } from "../shared/harnesses";
+import type { Tool } from "../shared/harnesses";
+import { api } from "./api";
+import { AccountDialog } from "./AccountDialog";
 
 const shorten = (path: string) => path.replace(/^\/Users\/[^/]+/, "~");
 const evidenceLabels = {
@@ -30,6 +32,7 @@ export function SettingsPage({
   onChanged: (message: string) => Promise<void>;
 }) {
   const [showFiles, setShowFiles] = useState(false);
+  const [accountError, setAccountError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const filesButton = useRef<HTMLButtonElement>(null);
   const reviewCount = inventory.skills.filter(
@@ -63,18 +66,16 @@ export function SettingsPage({
           settings can remain after an uninstall.
         </p>
         <div className="harness-locations">
-          {harnesses.map((harness) => {
-            const app = inventory.harnesses.find(
-              (item) => item.id === harness.id,
-            )!;
+          {inventory.harnesses.map((app) => {
+            const harness = app;
             return (
               <section
                 className="harness-location"
                 key={harness.id}
-                aria-label={harness.label}
+                aria-label={harness.name}
               >
                 <div>
-                  <strong>{harness.label}</strong>
+                  <strong>{harness.name}</strong>
                   <Badge variant="outline">
                     {app.detected ? "Setup found" : "No setup found"}
                   </Badge>
@@ -136,14 +137,14 @@ export function SettingsPage({
           another app.
         </p>
         <div className="app-overview">
-          {harnesses.map((harness) => {
+          {inventory.harnesses.map((harness) => {
             const count = inventory.skills.filter((skill) =>
               skill.tools.includes(harness.id),
             ).length;
             return (
               <div className="app-overview-row" key={harness.id}>
                 <div>
-                  <strong>{harness.label}</strong>
+                  <strong>{harness.name}</strong>
                   <small>
                     {count
                       ? `${count} ${count === 1 ? "skill" : "skills"} added`
@@ -153,15 +154,37 @@ export function SettingsPage({
                 <Button
                   variant="ghost"
                   size="sm"
-                  aria-label={`View ${harness.label} skills`}
+                  aria-label={`View ${harness.name} skills`}
                   onClick={() => onBrowse(harness.id)}
                 >
                   View skills <ChevronRight size={14} />
                 </Button>
+                {harness.base && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Remove account ${harness.name}`}
+                    onClick={() => {
+                      setAccountError("");
+                      void api
+                        .removeAccount(harness.id)
+                        .then(() => onChanged(`${harness.name} removed.`))
+                        .catch((e) => setAccountError(e.message));
+                    }}
+                  >
+                    Remove
+                  </Button>
+                )}
               </div>
             );
           })}
         </div>
+        {accountError && (
+          <p role="alert" className="form-error">
+            {accountError}
+          </p>
+        )}
+        <AccountDialog onAdded={onChanged} />
         <p>
           Restart an app after changing its skills. Some apps also read skills
           from shared folders.

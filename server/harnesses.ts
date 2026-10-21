@@ -2,12 +2,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { harnessDefinitions, type Tool } from "../shared/harnesses.ts";
+import {
+  harnessDefinitions,
+  type BaseTool,
+  type Tool,
+} from "../shared/harnesses.ts";
 export {
   harnessDefinitions,
   harnesses,
   toolLabel,
-  sourceLabel,
+  sourceName,
+  toolName,
+  baseTool,
+  type BaseTool,
   type Tool,
 } from "../shared/harnesses.ts";
 
@@ -15,6 +22,8 @@ export type Harness = {
   id: Tool;
   name: string;
   detected: boolean;
+  // Set on an account: the app it is another config folder for.
+  base?: BaseTool;
   evidence: {
     kind: "config" | "command" | "application" | "extension";
     path: string;
