@@ -26,6 +26,7 @@ import { InstallControl } from "./InstallControl";
 import { skillIssueText } from "./skillCopy";
 import { MarketplaceCatalog, packageFacts } from "./MarketplaceCatalog";
 import { ProductHeader } from "./ProductHeader";
+import { ScanFindings } from "./ScanFindings";
 
 const MarkdownContent = lazy(() =>
   import("./MarkdownContent").then((module) => ({
@@ -237,6 +238,7 @@ export function MarketplacesPage({
         action={
           existing ? (
             <div className="install-panel">
+              <ScanFindings scan={preview.scan} />
               <p role="status" className="install-status">
                 {fromHere ? (
                   <>
@@ -276,6 +278,7 @@ export function MarketplacesPage({
             </div>
           ) : (
             <div className="install-panel">
+              <ScanFindings scan={preview.scan} />
               <InstallControl
                 harnesses={harnesses}
                 tools={tools}

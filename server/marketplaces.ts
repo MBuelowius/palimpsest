@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createTwoFilesPatch } from "diff";
 import { parseDocument } from "yaml";
+import { scanPackage, scriptExtension } from "./scan.ts";
 import {
   LibraryError,
   SkillLibrary,
@@ -42,8 +43,6 @@ type Changes = Map<string, { date: string; before: boolean }>;
 const run = promisify(execFile);
 const CATALOGUE_VERSION = 1;
 const licenseName = /^(licen[cs]e|copying)\b/i;
-const scriptName =
-  /\.(py|sh|bash|zsh|fish|js|mjs|cjs|ts|rb|pl|php|ps1|bat|cmd|lua)$/i;
 const skipped = new Set([
   ".git",
   "node_modules",
@@ -158,32 +157,39 @@ function frontmatterLicense(content: string) {
     value = doc && !doc.errors.length ? doc.toJS()?.license : undefined;
   return typeof value === "string" ? value.trim().slice(0, 200) : "";
 }
-function contents(directory: string) {
-  let scripts = 0,
-    otherFiles = 0;
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (skipped.has(entry.name) || entry.name.endsWith(".pyc")) continue;
-    const location = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      const inner = contents(location);
-      scripts += inner.scripts;
-      otherFiles += inner.otherFiles;
-    } else if (
-      entry.isFile() &&
-      !/\.md$/i.test(entry.name) &&
-      !licenseName.test(entry.name)
-    ) {
-      if (scriptName.test(entry.name) || fs.statSync(location).mode & 0o111)
-        scripts++;
-      else otherFiles++;
-    }
-  }
-  return { scripts, otherFiles };
-}
 function scan(root: string, changes: Changes = new Map()) {
   const skills: CatalogueSkill[] = [],
     rootLicense = licenseFile(root, "");
   let files = 0;
+  // Package walks share the scan's entry budget and depth limit.
+  function contents(directory: string, depth = 0) {
+    let scripts = 0,
+      otherFiles = 0;
+    if (depth > 10) return { scripts, otherFiles };
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (++files > 30000)
+        throw new LibraryError("This repository is too large to browse.");
+      if (skipped.has(entry.name) || entry.name.endsWith(".pyc")) continue;
+      const location = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        const inner = contents(location, depth + 1);
+        scripts += inner.scripts;
+        otherFiles += inner.otherFiles;
+      } else if (
+        entry.isFile() &&
+        !/\.md$/i.test(entry.name) &&
+        !licenseName.test(entry.name)
+      ) {
+        if (
+          scriptExtension.test(entry.name) ||
+          fs.statSync(location).mode & 0o111
+        )
+          scripts++;
+        else otherFiles++;
+      }
+    }
+    return { scripts, otherFiles };
+  }
   function visit(directory: string, depth: number) {
     if (depth > 10) return;
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -358,6 +364,7 @@ export class Marketplaces {
       content: fs.readFileSync(path.join(directory, "SKILL.md"), "utf8"),
       hash: packageTree.hash,
       files: packageTree.files,
+      scan: scanPackage(directory, packageTree.files),
       installable: !packageTree.links.length && !!skill.description,
     };
   }
@@ -469,6 +476,7 @@ export class Marketplaces {
       edited: status.edited,
       hash: status.hash,
       files,
+      scan: scanPackage(upstream, [...after.keys()]),
     };
   }
   update(name: string, hash: string) {

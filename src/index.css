@@ -815,6 +815,18 @@ h3 {
   font-size: 13px;
   margin: 6px 0;
 }
+.scan-findings {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.scan-findings ul {
+  list-style: disc;
+  padding-left: 20px;
+  font-size: 13px;
+}
+.scan-findings li + li {
+  margin-top: 6px;
+}
 .detail-footer {
   display: flex;
   align-items: center;
