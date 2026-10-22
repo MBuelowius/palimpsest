@@ -8,6 +8,7 @@ import { createServer } from "./http.ts";
 import { Marketplaces } from "./marketplaces.ts";
 import { detectHarnesses, harnessDefinitions } from "./harnesses.ts";
 import { runReview } from "./review.ts";
+import { provenance } from "../shared/provenance.ts";
 
 const args = process.argv.slice(2);
 function option(flag: string) {
@@ -279,7 +280,16 @@ async function main() {
   if (!name || name.startsWith("--"))
     throw new Error("Choose a skill name. Run palimpsest --help for commands.");
   if (command === "inspect") {
-    print(library.detail(name));
+    const detail = library.detail(name);
+    print({
+      ...detail,
+      provenance: provenance(detail.origin).map(
+        ({ label, commit, date }) =>
+          label +
+          (commit ? `${label === "Updated to" ? " " : " at "}${commit}` : "") +
+          (date ? ` on ${date}` : ""),
+      ),
+    });
     return;
   }
   const skill = library.skill(name);
