@@ -250,3 +250,41 @@ test("tiles show Installed and Update for skills added from that collection", as
     dom.window.close();
   }
 });
+
+test("an empty marketplace points to suggestions when skills.md is unavailable", async () => {
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost" });
+  const previous = { window: globalThis.window, document: globalThis.document };
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  const hosted = api.skillsMdCatalogue;
+  api.skillsMdCatalogue = async () => {
+    throw new Error("Service unavailable");
+  };
+  const root = createRoot(document.getElementById("root")!);
+  let opened = false;
+  try {
+    await act(async () => {
+      root.render(
+        <MarketplaceCatalog
+          sources={[]}
+          onManageSources={() => {
+            opened = true;
+          }}
+          onRepositorySkill={async () => {}}
+        />,
+      );
+    });
+    const button = document.querySelector<HTMLButtonElement>(".empty button");
+    assert.equal(button?.textContent, "Browse suggested collections");
+    await act(async () => button!.click());
+    assert.equal(opened, true);
+  } finally {
+    await act(async () => root.unmount());
+    api.skillsMdCatalogue = hosted;
+    Object.assign(globalThis, previous);
+    dom.window.close();
+  }
+});

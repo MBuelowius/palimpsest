@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Plus, Loader2, RefreshCw, ArrowLeft, Check } from "lucide-react";
+import { Loader2, RefreshCw, ArrowLeft, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,6 +27,7 @@ import { skillIssueText } from "./skillCopy";
 import { MarketplaceCatalog, packageFacts } from "./MarketplaceCatalog";
 import { ProductHeader } from "./ProductHeader";
 import { ScanFindings } from "./ScanFindings";
+import { SuggestedCollections } from "./SuggestedCollections";
 
 const MarkdownContent = lazy(() =>
   import("./MarkdownContent").then((module) => ({
@@ -441,35 +442,12 @@ export function MarketplacesPage({
                   </div>
                 </div>
               ))}
-              <div className="inline-actions">
-                {!sources.some(
-                  (source) => source.repo.toLowerCase() === "anthropics/skills",
-                ) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void add("anthropics/skills")}
-                  >
-                    <Plus size={14} />
-                    Add Anthropic
-                  </Button>
-                )}
-                {!sources.some(
-                  (source) => source.repo.toLowerCase() === "openai/skills",
-                ) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void add("openai/skills")}
-                  >
-                    <Plus size={14} />
-                    Add OpenAI
-                  </Button>
-                )}
-              </div>
             </section>
+            <SuggestedCollections
+              sources={sources}
+              busy={busy}
+              onAdd={(repo) => void add(repo)}
+            />
             <form
               onSubmit={(e) => {
                 e.preventDefault();

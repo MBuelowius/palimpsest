@@ -345,7 +345,15 @@ export function MarketplaceCatalog({
     );
   }
   const emptyState =
-    !filtered.length && !error ? (
+    !loading && !skills.length && !sources.length ? (
+      <div className="empty">
+        <h3>No collections added</h3>
+        <p>Browse suggested collections in Sources to add skills.</p>
+        <Button variant="outline" onClick={onManageSources}>
+          Browse suggested collections
+        </Button>
+      </div>
+    ) : !filtered.length && !error ? (
       <div className="empty">
         <h3>No skills found</h3>
         <p>Try another search or clear your filters.</p>
