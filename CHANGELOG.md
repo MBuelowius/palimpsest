@@ -6,6 +6,7 @@ User-visible changes are recorded here. Entries under Unreleased are not publish
 
 ### Added
 
+- Repository, commit, and install/update dates in skill details and CLI inspection, retained after collection removal.
 - Local Claude and Codex skill inventory, whole-package comparisons, and shared-library links.
 - File editing, operation backups, and conflict-aware restoration.
 - Public GitHub marketplace browsing and package installation previews.

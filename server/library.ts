@@ -45,7 +45,15 @@ export type Account = {
   name: string;
   folder: string;
 };
-export type Origin = { source: string; path: string; hash: string };
+export type Origin = {
+  source: string;
+  path: string;
+  hash: string;
+  repo?: string;
+  commit?: string;
+  installedAt?: string;
+  added?: { commit?: string; installedAt?: string };
+};
 type Manifest = {
   schema: 1;
   skills: Record<string, { adoptedAt: string; origin?: Origin }>;
@@ -461,6 +469,7 @@ export class SkillLibrary {
     const baseFiles = fileHashes(base);
     return {
       ...skill,
+      origin: this.origins()[name],
       packageDiffs: skill.variants.slice(1).map((variant) => {
         const other = fileHashes(variant);
         const files = [...new Set([...baseFiles.keys(), ...other.keys()])]
@@ -941,14 +950,23 @@ export class SkillLibrary {
           const manifest = this.manifest();
           manifest.skills[name] = {
             adoptedAt: new Date().toISOString(),
-            origin: origin && { ...origin, hash },
+            origin: origin && {
+              ...origin,
+              hash,
+              installedAt: new Date().toISOString(),
+            },
           };
           this.json(path.join(this.state, "manifest.json"), manifest);
         },
       );
     });
   }
-  updatePackage(name: string, directory: string, hash: string) {
+  updatePackage(
+    name: string,
+    directory: string,
+    hash: string,
+    origin: Pick<Origin, "repo" | "commit"> = {},
+  ) {
     return this.lock(() => {
       const entry = this.manifest().skills[name];
       if (!entry?.origin)
@@ -990,7 +1008,16 @@ export class SkillLibrary {
             fs.rmSync(canonical, { recursive: true });
             fs.renameSync(staging, canonical);
             const manifest = this.manifest();
-            manifest.skills[name].origin = { ...entry.origin!, hash };
+            manifest.skills[name].origin = {
+              ...entry.origin!,
+              ...origin,
+              hash,
+              installedAt: new Date().toISOString(),
+              added: entry.origin!.added ?? {
+                commit: entry.origin!.commit,
+                installedAt: entry.origin!.installedAt,
+              },
+            };
             this.json(path.join(this.state, "manifest.json"), manifest);
           },
         );
