@@ -94,12 +94,14 @@ type CatalogSkill = HostedSkill & {
 
 export function MarketplaceCatalog({
   sources,
+  skillsMd,
   skills: library = [],
   updates = [],
   onManageSources,
   onRepositorySkill,
 }: {
   sources: Marketplace[];
+  skillsMd: boolean;
   skills?: { name: string }[];
   updates?: SkillUpdate[];
   onManageSources: () => void;
@@ -125,16 +127,20 @@ export function MarketplaceCatalog({
     setLoading(true);
     setError("");
     const requests = [
-      {
-        name: "skills.md",
-        load: api.skillsMdCatalogue().then((list): CatalogSkill[] =>
-          list.map((skill) => ({
-            ...skill,
-            key: "skills.md/" + skill.slug,
-            source: "skills.md",
-          })),
-        ),
-      },
+      ...(skillsMd
+        ? [
+            {
+              name: "skills.md",
+              load: api.skillsMdCatalogue().then((list): CatalogSkill[] =>
+                list.map((skill) => ({
+                  ...skill,
+                  key: "skills.md/" + skill.slug,
+                  source: "skills.md",
+                })),
+              ),
+            },
+          ]
+        : []),
       ...sources.map((source) => ({
         name: source.repo,
         load: api.catalogue(source.id).then((list): CatalogSkill[] =>
@@ -174,7 +180,7 @@ export function MarketplaceCatalog({
     return () => {
       active = false;
     };
-  }, [revision, sources]);
+  }, [revision, sources, skillsMd]);
   useEffect(() => {
     let active = true;
     (async () => {
@@ -231,8 +237,13 @@ export function MarketplaceCatalog({
       active = false;
     };
   }, [selected]);
+  useEffect(() => {
+    setSelected(null);
+    setCategory("");
+    setSourceFilter(null);
+  }, [skillsMd]);
   const sourceOptions = [
-    { id: "skills.md", name: "skills.md" },
+    ...(skillsMd ? [{ id: "skills.md", name: "skills.md" }] : []),
     ...sources.map((source) => ({ id: source.id, name: source.repo })),
   ];
   const activeSources =
@@ -348,7 +359,11 @@ export function MarketplaceCatalog({
     !loading && !skills.length && !sources.length ? (
       <div className="empty">
         <h3>No collections added</h3>
-        <p>Browse suggested collections in Sources to add skills.</p>
+        <p>
+          {skillsMd
+            ? "Browse suggested collections in Sources to add skills."
+            : "Add a collection to browse skills. The skills.md catalog is turned off in Settings."}
+        </p>
         <Button variant="outline" onClick={onManageSources}>
           Browse suggested collections
         </Button>

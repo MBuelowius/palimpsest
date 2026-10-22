@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MarketplaceCatalog } from "./MarketplaceCatalog";
 import { api, type Marketplace } from "./api";
 
 const source: Marketplace = {
@@ -46,6 +45,9 @@ test("marketplace combines sources and opens repository packages through the exi
       otherFiles: 0,
     },
   ];
+  const installs = api.installs;
+  api.installs = async () => ({});
+  const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
   const root = createRoot(document.getElementById("root")!);
   const opened: string[] = [];
   const sources = [source];
@@ -53,6 +55,7 @@ test("marketplace combines sources and opens repository packages through the exi
     await act(async () => {
       root.render(
         <MarketplaceCatalog
+          skillsMd={true}
           sources={sources}
           onManageSources={() => {}}
           onRepositorySkill={async (id, skill) => {
@@ -75,6 +78,7 @@ test("marketplace combines sources and opens repository packages through the exi
     assert.deepEqual(opened, [source.id + "/sample"]);
   } finally {
     await act(async () => root.unmount());
+    api.installs = installs;
     api.skillsMdCatalogue = hosted;
     api.catalogue = catalogue;
     Object.assign(globalThis, previous);
@@ -107,11 +111,15 @@ test("an unavailable source leaves skills from other sources browsable", async (
       otherFiles: 0,
     },
   ];
+  const installs = api.installs;
+  api.installs = async () => ({});
+  const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
   const root = createRoot(document.getElementById("root")!);
   try {
     await act(async () => {
       root.render(
         <MarketplaceCatalog
+          skillsMd={true}
           sources={[source]}
           onManageSources={() => {}}
           onRepositorySkill={async () => {}}
@@ -129,6 +137,7 @@ test("an unavailable source leaves skills from other sources browsable", async (
     );
   } finally {
     await act(async () => root.unmount());
+    api.installs = installs;
     api.skillsMdCatalogue = hosted;
     api.catalogue = catalogue;
     Object.assign(globalThis, previous);
@@ -154,11 +163,15 @@ test("home shows capped category shelves and See all opens that category", async
       price: "Free",
       availability: "Available",
     }));
+  const installs = api.installs;
+  api.installs = async () => ({});
+  const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
   const root = createRoot(document.getElementById("root")!);
   try {
     await act(async () => {
       root.render(
         <MarketplaceCatalog
+          skillsMd={true}
           sources={[]}
           onManageSources={() => {}}
           onRepositorySkill={async () => {}}
@@ -184,6 +197,7 @@ test("home shows capped category shelves and See all opens that category", async
     assert.equal(document.querySelectorAll(".store-shelf").length, 1);
   } finally {
     await act(async () => root.unmount());
+    api.installs = installs;
     api.skillsMdCatalogue = hosted;
     Object.assign(globalThis, previous);
     dom.window.close();
@@ -212,6 +226,9 @@ test("tiles show Installed and Update for skills added from that collection", as
       scripts: 0,
       otherFiles: 0,
     }));
+  const installs = api.installs;
+  api.installs = async () => ({});
+  const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
   const root = createRoot(document.getElementById("root")!);
   const entry = (name: string, update: boolean) => ({
     name,
@@ -226,6 +243,7 @@ test("tiles show Installed and Update for skills added from that collection", as
     await act(async () => {
       root.render(
         <MarketplaceCatalog
+          skillsMd={true}
           sources={[source]}
           skills={[{ name: "current" }, { name: "outdated" }]}
           updates={[entry("current", false), entry("outdated", true)]}
@@ -244,6 +262,7 @@ test("tiles show Installed and Update for skills added from that collection", as
     ]);
   } finally {
     await act(async () => root.unmount());
+    api.installs = installs;
     api.skillsMdCatalogue = hosted;
     api.catalogue = catalogue;
     Object.assign(globalThis, previous);
@@ -263,12 +282,16 @@ test("an empty marketplace points to suggestions when skills.md is unavailable",
   api.skillsMdCatalogue = async () => {
     throw new Error("Service unavailable");
   };
+  const installs = api.installs;
+  api.installs = async () => ({});
+  const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
   const root = createRoot(document.getElementById("root")!);
   let opened = false;
   try {
     await act(async () => {
       root.render(
         <MarketplaceCatalog
+          skillsMd={true}
           sources={[]}
           onManageSources={() => {
             opened = true;
@@ -283,7 +306,98 @@ test("an empty marketplace points to suggestions when skills.md is unavailable",
     assert.equal(opened, true);
   } finally {
     await act(async () => root.unmount());
+    api.installs = installs;
     api.skillsMdCatalogue = hosted;
+    Object.assign(globalThis, previous);
+    dom.window.close();
+  }
+});
+
+test("skills.md off makes no hosted request and leaves only repository tiles and source options", async () => {
+  const dom = new JSDOM("<div id='root'></div>", {
+    url: "http://localhost",
+    pretendToBeVisual: true,
+  });
+  const globals = {
+    window: dom.window,
+    document: dom.window.document,
+    Event: dom.window.Event,
+    CustomEvent: dom.window.CustomEvent,
+    NodeFilter: dom.window.NodeFilter,
+    Node: dom.window.Node,
+    Element: dom.window.Element,
+    HTMLElement: dom.window.HTMLElement,
+    HTMLInputElement: dom.window.HTMLInputElement,
+    MutationObserver: dom.window.MutationObserver,
+    getComputedStyle: dom.window.getComputedStyle,
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+    cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  };
+  const previous = Object.fromEntries(
+    Object.keys(globals).map((key) => [key, Reflect.get(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals, { IS_REACT_ACT_ENVIRONMENT: true });
+  const hosted = api.skillsMdCatalogue,
+    catalogue = api.catalogue,
+    installs = api.installs;
+  let calls = 0;
+  api.skillsMdCatalogue = async () => {
+    calls++;
+    return [];
+  };
+  api.catalogue = async () => [
+    {
+      id: "sample",
+      name: "Sample",
+      path: "skills/sample",
+      description: "Repository package",
+      issues: [],
+      license: "",
+      scripts: 0,
+      otherFiles: 0,
+    },
+  ];
+  api.installs = async () => ({});
+  const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <MarketplaceCatalog
+          skillsMd={false}
+          sources={[source]}
+          onManageSources={() => {}}
+          onRepositorySkill={async () => {}}
+        />,
+      ),
+    );
+    assert.equal(calls, 0);
+    assert.equal(document.querySelectorAll(".store-tile").length, 1);
+    assert.doesNotMatch(document.body.textContent!, /skills\.md/);
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Filter sources"]')!
+        .click(),
+    );
+    assert.deepEqual(
+      [...document.querySelectorAll(".discover-source-filter label")].map(
+        (label) => label.textContent,
+      ),
+      ["All sources", "owner/skills"],
+    );
+  } finally {
+    await act(async () => {
+      root.unmount();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    api.skillsMdCatalogue = hosted;
+    api.catalogue = catalogue;
+    api.installs = installs;
     Object.assign(globalThis, previous);
     dom.window.close();
   }

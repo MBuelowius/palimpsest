@@ -4,6 +4,8 @@ import type {
   Marketplaces,
 } from "../server/marketplaces";
 import type { HostedSkill } from "../server/skillsMd";
+import type { Settings } from "../server/library";
+export type { Settings };
 export type MarketplacePreview = ReturnType<Marketplaces["preview"]>;
 export type SkillUpdate = ReturnType<Marketplaces["updates"]>[number];
 export type UpdatePreview = ReturnType<Marketplaces["updatePreview"]>;
@@ -51,6 +53,9 @@ async function request<T>(
 }
 const skillUrl = (name: string) => "/api/skills/" + encodeURIComponent(name);
 export const api = {
+  settings: () => request<Settings>("/api/settings"),
+  saveSettings: (settings: Settings) =>
+    request<Settings>("/api/settings", "PUT", settings),
   skillsMdCatalogue: () => request<HostedSkill[]>("/api/skills-md"),
   skillsMdInstructions: (slug: string) =>
     request<{ content: string }>("/api/skills-md/" + encodeURIComponent(slug)),

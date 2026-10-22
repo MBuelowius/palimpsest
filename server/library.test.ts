@@ -482,3 +482,84 @@ test("sync shares a Cursor package across all harnesses while preserving existin
   );
   assert.deepEqual(library.skill("already-shared").tools, ["gemini"]);
 });
+
+test("marketplace settings default to shown and persist in the isolated home", (t) => {
+  const { home, library } = fixture(t);
+  assert.deepEqual(library.settings(), { skillsMd: true });
+  assert.deepEqual(library.saveSettings({ skillsMd: false }), {
+    skillsMd: false,
+  });
+  const file = path.join(library.state, "settings.json");
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), {
+    skillsMd: false,
+  });
+  assert.deepEqual(new SkillLibrary(home).settings(), { skillsMd: false });
+  for (const saved of [{}, { skillsMd: "no" }]) {
+    fs.writeFileSync(file, JSON.stringify(saved));
+    assert.deepEqual(library.settings(), { skillsMd: true });
+  }
+});
+
+test("HTTP settings validate writes and block both skills.md routes before network access", async (t) => {
+  const { library, home } = fixture(t);
+  const server = createServer(library, home);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const { token } = await (await fetch(base + "/api/session")).json();
+  assert.deepEqual(await (await fetch(base + "/api/settings")).json(), {
+    skillsMd: true,
+  });
+  const save = (settings: unknown, headers: Record<string, string>) =>
+    fetch(base + "/api/settings", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify(settings),
+    });
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Skill-Library-Token": token,
+  };
+  assert.equal(
+    (await save({ skillsMd: false }, { "Content-Type": "application/json" }))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await save({ skillsMd: false }, { "X-Skill-Library-Token": token }))
+      .status,
+    415,
+  );
+  for (const settings of [{}, { skillsMd: "no" }]) {
+    const invalid = await save(settings, headers);
+    assert.equal(invalid.status, 400);
+    assert.deepEqual(await invalid.json(), {
+      error: "Missing skillsMd setting.",
+    });
+  }
+  const saved = await save({ skillsMd: false }, headers);
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await saved.json(), { skillsMd: false });
+  assert.deepEqual(await (await fetch(base + "/api/settings")).json(), {
+    skillsMd: false,
+  });
+  const originalFetch = globalThis.fetch;
+  t.mock.method(
+    globalThis,
+    "fetch",
+    (input: string | URL | Request, init?: RequestInit) => {
+      assert.ok(
+        String(input).startsWith(base + "/"),
+        "Only the isolated local server may be contacted",
+      );
+      return originalFetch(input, init);
+    },
+  );
+  for (const route of ["/api/skills-md", "/api/skills-md/logo"]) {
+    const blocked = await fetch(base + route);
+    assert.equal(blocked.status, 409);
+    assert.deepEqual(await blocked.json(), {
+      error: "skills.md is turned off in Settings.",
+    });
+  }
+});
