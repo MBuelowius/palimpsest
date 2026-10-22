@@ -440,6 +440,36 @@ function write(root: string, files: Record<string, string>) {
     fs.writeFileSync(path.join(root, file), content);
   }
 }
+const git = (cwd: string, args: string[], date?: string) =>
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], {
+    cwd,
+    env: {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_AUTHOR_DATE: date,
+      GIT_COMMITTER_DATE: date,
+    },
+  });
+// Adds the repository at `upstream` with a clone that copies it, history included.
+async function dates(home: string, upstream: string) {
+  const marketplaces = new Marketplaces(
+    new SkillLibrary(home),
+    async (_repo, directory) => {
+      fs.cpSync(upstream, directory, { recursive: true });
+      return "commit";
+    },
+  );
+  const source = await marketplaces.add("test/history");
+  return Object.fromEntries(
+    marketplaces
+      .catalogue(source.id)
+      .map(({ path: folder, changedAt }) => [
+        folder,
+        changedAt && new Date(changedAt).toISOString().slice(0, 10),
+      ]),
+  );
+}
 const skill = (license = "") =>
   `---\nname: x\ndescription: X\n${license}---\n\nBody\n`;
 
@@ -513,17 +543,6 @@ test("listings report the license and non-Markdown files from the download", asy
 test("listings date each package by the latest commit that touched it", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "marketplace-test-")),
     upstream = path.join(home, "upstream");
-  const git = (cwd: string, args: string[], date?: string) =>
-    execFileSync("git", args, {
-      cwd,
-      env: {
-        ...process.env,
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_AUTHOR_DATE: date,
-        GIT_COMMITTER_DATE: date,
-      },
-    });
   fs.mkdirSync(upstream);
   git(upstream, ["init", "-q"]);
   for (const [folder, date] of [
@@ -533,11 +552,7 @@ test("listings date each package by the latest commit that touched it", async ()
   ]) {
     write(upstream, { [folder + "/SKILL.md"]: skill() });
     git(upstream, ["add", "."]);
-    git(
-      upstream,
-      ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", folder],
-      date,
-    );
+    git(upstream, ["commit", "-qm", folder], date);
   }
   const marketplaces = new Marketplaces(
     new SkillLibrary(home),
@@ -570,6 +585,117 @@ test("listings date each package by the latest commit that touched it", async ()
         middle: ["2026-02-01", true],
         new: ["2026-03-01", false],
       },
+    );
+  } finally {
+    fs.rmSync(home, { recursive: true });
+  }
+});
+
+test("scripts named like licenses or Markdown count as scripts", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "marketplace-test-"));
+  const marketplaces = new Marketplaces(
+    new SkillLibrary(home),
+    async (_repo, directory) => {
+      write(directory, {
+        "skills/tricky/SKILL.md": skill(),
+        "skills/tricky/license-helper.sh": "#!/bin/sh",
+        "skills/tricky/run.md": "#!/bin/sh",
+        "skills/tricky/LICENSE.md": "Terms",
+      });
+      fs.chmodSync(path.join(directory, "skills/tricky/run.md"), 0o755);
+      return "commit";
+    },
+  );
+  try {
+    const source = await marketplaces.add("test/tricky");
+    const [tricky] = marketplaces.catalogue(source.id);
+    assert.equal(tricky.scripts, 2);
+    assert.equal(tricky.otherFiles, 0);
+    assert.equal(tricky.licenseFile, "skills/tricky/LICENSE.md");
+  } finally {
+    fs.rmSync(home, { recursive: true });
+  }
+});
+
+test("a package changed only by a merge is dated by the merge", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "marketplace-test-")),
+    upstream = path.join(home, "upstream");
+  fs.mkdirSync(upstream);
+  try {
+    git(upstream, ["init", "-q", "-b", "main"]);
+    write(upstream, { "pkg/SKILL.md": skill() });
+    git(upstream, ["add", "."]);
+    git(upstream, ["commit", "-qm", "add"], "2026-01-01T00:00:00Z");
+    git(upstream, ["checkout", "-qb", "feature"]);
+    fs.appendFileSync(path.join(upstream, "pkg/SKILL.md"), "More\n");
+    git(upstream, ["commit", "-qam", "change"], "2026-02-01T00:00:00Z");
+    git(upstream, ["checkout", "-q", "main"]);
+    write(upstream, { "other/SKILL.md": skill() });
+    git(upstream, ["add", "."]);
+    git(upstream, ["commit", "-qm", "other"], "2026-03-01T00:00:00Z");
+    git(
+      upstream,
+      ["merge", "-q", "--no-ff", "feature", "-m", "merge"],
+      "2026-04-01T00:00:00Z",
+    );
+    assert.deepEqual(await dates(home, upstream), {
+      other: "2026-03-01",
+      pkg: "2026-04-01",
+    });
+  } finally {
+    fs.rmSync(home, { recursive: true });
+  }
+});
+
+test("folders with quotes and backslashes keep their dates", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "marketplace-test-")),
+    upstream = path.join(home, "upstream");
+  fs.mkdirSync(upstream);
+  try {
+    git(upstream, ["init", "-q"]);
+    write(upstream, {
+      'quote"folder/SKILL.md': skill(),
+      "back\\slash/SKILL.md": skill(),
+      "tab\tfolder/SKILL.md": skill(),
+    });
+    git(upstream, ["add", "."]);
+    git(upstream, ["commit", "-qm", "add"], "2026-05-01T00:00:00Z");
+    assert.deepEqual(await dates(home, upstream), {
+      "back\\slash": "2026-05-01",
+      'quote"folder': "2026-05-01",
+      "tab\tfolder": "2026-05-01",
+    });
+  } finally {
+    fs.rmSync(home, { recursive: true });
+  }
+});
+
+test("a repository browsable before nested package counts stays browsable", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "marketplace-test-"));
+  const marketplaces = new Marketplaces(
+    new SkillLibrary(home),
+    async (_repo, directory) => {
+      // 15,002 entries: under the 30,000 limit once, over it if counted twice.
+      write(directory, { "SKILL.md": skill(), "skills/a/SKILL.md": skill() });
+      const data = path.join(directory, "skills", "a", "data");
+      fs.mkdirSync(data);
+      for (let index = 0; index < 14997; index++)
+        fs.writeFileSync(path.join(data, index + ".txt"), "");
+      return "commit";
+    },
+  );
+  try {
+    const source = await marketplaces.add("test/large");
+    assert.deepEqual(
+      Object.fromEntries(
+        marketplaces
+          .catalogue(source.id)
+          .map(({ name, path: folder, otherFiles }) => [
+            folder,
+            [name, otherFiles],
+          ]),
+      ),
+      { "": [source.id, 14997], "skills/a": ["a", 14997] },
     );
   } finally {
     fs.rmSync(home, { recursive: true });

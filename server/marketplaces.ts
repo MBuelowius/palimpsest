@@ -42,7 +42,7 @@ export type CatalogueSkill = {
 type Changes = Map<string, { date: string; before: boolean }>;
 const run = promisify(execFile);
 const CATALOGUE_VERSION = 1;
-const licenseName = /^(licen[cs]e|copying)\b/i;
+const licenseName = /^(licen[cs]e|copying)(\.[a-z0-9]+)?$/i;
 const skipped = new Set([
   ".git",
   "node_modules",
@@ -116,32 +116,47 @@ async function history(directory: string): Promise<Changes> {
         : [],
     );
   // --no-renames: rename detection would fetch old blobs in a blobless clone.
+  // First-parent history dates a change when it landed on the default
+  // branch, including changes that arrive only through a merge.
   const { stdout } = await run(
     "git",
     [
       "-C",
       directory,
       "-c",
-      "core.quotePath=false",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "core.fsmonitor=false",
       "log",
+      "--first-parent",
+      "--diff-merges=first-parent",
       "--format=%x00%H %cI",
       "--name-only",
       "--no-renames",
+      "-z",
     ],
     { env: gitEnv(), timeout: 30000, maxBuffer: 64 * 1024 * 1024 },
   );
-  for (const commit of stdout.split("\0").slice(1)) {
-    const [header, ...files] = commit.split("\n"),
-      [hash, date] = header.split(" ");
-    for (const file of files.filter(Boolean))
-      // Setting a folder also sets its parents, so stop at the first one seen.
-      for (let folder = path.posix.dirname(file); ;) {
-        const key = folder === "." ? "" : folder;
-        if (changes.has(key)) break;
-        changes.set(key, { date, before: boundary.has(hash) });
-        if (!key) break;
-        folder = path.posix.dirname(folder);
-      }
+  // With -z, each commit is an empty token, then "hash date", then its file
+  // names; the first name follows the header's newline.
+  const tokens = stdout.split("\0");
+  let hash = "",
+    date = "";
+  for (let index = 0; index < tokens.length; index++) {
+    if (!tokens[index]) {
+      [hash, date] = (tokens[++index] ?? "").split(" ");
+      if (tokens[index + 1]?.startsWith("\n"))
+        tokens[index + 1] = tokens[index + 1].slice(1);
+      continue;
+    }
+    // Setting a folder also sets its parents, so stop at the first one seen.
+    for (let folder = path.posix.dirname(tokens[index]); ;) {
+      const key = folder === "." ? "" : folder;
+      if (changes.has(key)) break;
+      changes.set(key, { date, before: boundary.has(hash) });
+      if (!key) break;
+      folder = path.posix.dirname(folder);
+    }
   }
   return changes;
 }
@@ -161,37 +176,11 @@ function scan(root: string, changes: Changes = new Map()) {
   const skills: CatalogueSkill[] = [],
     rootLicense = licenseFile(root, "");
   let files = 0;
-  // Package walks share the scan's entry budget and depth limit.
-  function contents(directory: string, depth = 0) {
-    let scripts = 0,
-      otherFiles = 0;
-    if (depth > 10) return { scripts, otherFiles };
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (++files > 30000)
-        throw new LibraryError("This repository is too large to browse.");
-      if (skipped.has(entry.name) || entry.name.endsWith(".pyc")) continue;
-      const location = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        const inner = contents(location, depth + 1);
-        scripts += inner.scripts;
-        otherFiles += inner.otherFiles;
-      } else if (
-        entry.isFile() &&
-        !/\.md$/i.test(entry.name) &&
-        !licenseName.test(entry.name)
-      ) {
-        if (
-          scriptExtension.test(entry.name) ||
-          fs.statSync(location).mode & 0o111
-        )
-          scripts++;
-        else otherFiles++;
-      }
-    }
-    return { scripts, otherFiles };
-  }
+  // One bounded walk finds packages and counts each package's files.
   function visit(directory: string, depth: number) {
-    if (depth > 10) return;
+    const counts = { scripts: 0, otherFiles: 0 };
+    if (depth > 10) return counts;
+    let skill: string | undefined;
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       if (++files > 30000)
         throw new LibraryError("This repository is too large to browse.");
@@ -201,31 +190,49 @@ function scan(root: string, changes: Changes = new Map()) {
         entry.name === ".system"
       )
         continue;
-      const location = path.join(directory, entry.name);
-      if (entry.isDirectory()) visit(location, depth + 1);
+      const location = path.join(directory, entry.name),
+        counted = !skipped.has(entry.name) && !entry.name.endsWith(".pyc");
+      if (entry.isDirectory()) {
+        const inner = visit(location, depth + 1);
+        if (counted) {
+          counts.scripts += inner.scripts;
+          counts.otherFiles += inner.otherFiles;
+        }
+      } else if (entry.isFile() && counted) {
+        if (
+          scriptExtension.test(entry.name) ||
+          fs.statSync(location).mode & 0o111
+        )
+          counts.scripts++;
+        else if (!/\.md$/i.test(entry.name) && !licenseName.test(entry.name))
+          counts.otherFiles++;
+      }
       if (
         entry.isFile() &&
         entry.name === "SKILL.md" &&
         fs.statSync(location).size <= 1024 * 1024
-      ) {
-        const relative = path.relative(root, directory),
-          content = fs.readFileSync(location, "utf8"),
-          info = metadata(content),
-          changed = changes.get(relative);
-        skills.push({
-          id: skillId(relative),
-          name: path.basename(directory),
-          path: relative,
-          description: info.description,
-          issues: info.issues,
-          license: frontmatterLicense(content),
-          licenseFile: licenseFile(root, relative) || rootLicense,
-          ...contents(directory),
-          changedAt: changed?.date,
-          changedBefore: changed?.before,
-        });
-      }
+      )
+        skill = location;
     }
+    if (skill) {
+      const relative = path.relative(root, directory),
+        content = fs.readFileSync(skill, "utf8"),
+        info = metadata(content),
+        changed = changes.get(relative);
+      skills.push({
+        id: skillId(relative),
+        name: path.basename(directory),
+        path: relative,
+        description: info.description,
+        issues: info.issues,
+        license: frontmatterLicense(content),
+        licenseFile: licenseFile(root, relative) || rootLicense,
+        ...counts,
+        changedAt: changed?.date,
+        changedBefore: changed?.before,
+      });
+    }
+    return counts;
   }
   visit(root, 0);
   return skills.sort((a, b) => a.name.localeCompare(b.name));
@@ -273,7 +280,7 @@ export class Marketplaces {
     const directory = path.join(this.root, id + "-" + randomUUID());
     try {
       const commit = await this.clone(repo, directory),
-        skills = scan(directory, await history(directory));
+        changes = await history(directory);
       const source = {
         id,
         repo,
@@ -302,10 +309,12 @@ export class Marketplaces {
       if (hadSnapshot) fs.renameSync(target, archive);
       try {
         fs.renameSync(directory, target);
+        // Scan in place so a package at the repository root is named after
+        // the snapshot, not the temporary clone directory.
         this.write(id + ".catalogue.json", {
           version: CATALOGUE_VERSION,
           commit,
-          skills,
+          skills: scan(target, changes),
         });
         this.write(
           "sources.json",
