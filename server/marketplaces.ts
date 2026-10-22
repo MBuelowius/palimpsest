@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createTwoFilesPatch } from "diff";
+import { scanPackage } from "./scan.ts";
 import {
   LibraryError,
   SkillLibrary,
@@ -223,6 +224,7 @@ export class Marketplaces {
       content: fs.readFileSync(path.join(directory, "SKILL.md"), "utf8"),
       hash: packageTree.hash,
       files: packageTree.files,
+      scan: scanPackage(directory, packageTree.files),
       installable: !packageTree.links.length && !!skill.description,
     };
   }
@@ -334,6 +336,7 @@ export class Marketplaces {
       edited: status.edited,
       hash: status.hash,
       files,
+      scan: scanPackage(upstream, [...after.keys()]),
     };
   }
   update(name: string, hash: string) {
