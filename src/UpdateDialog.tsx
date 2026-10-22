@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api, type UpdatePreview } from "./api";
+import { ScanFindings } from "./ScanFindings";
 
 export function UpdateDialog({
   names,
@@ -143,6 +144,7 @@ export function UpdateDialog({
                   )}
                 </details>
               ))}
+              <ScanFindings scan={preview.scan} />
             </section>
           ))}
         </div>
