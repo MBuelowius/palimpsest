@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { harnesses } from "./harnesses.ts";
 import { SkillLibrary } from "./library.ts";
 import { Marketplaces, githubRepository } from "./marketplaces.ts";
+import { provenance } from "../shared/provenance.ts";
 
 function fixture() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "marketplace-test-"));
@@ -37,6 +38,114 @@ function fixture() {
   );
   return { home, library, marketplaces, id, directory };
 }
+
+test("provenance retains the added version, latest update, and removed collection", async (t) => {
+  const f = fixture();
+  t.after(() => fs.rmSync(f.home, { recursive: true }));
+  t.mock.timers.enable({
+    apis: ["Date"],
+    now: Date.parse("2026-10-20T12:00:00Z"),
+  });
+  let commit = "abc123456789";
+  const marketplaces = new Marketplaces(f.library, async (_repo, directory) => {
+    fs.cpSync(path.dirname(f.directory), path.join(directory, "skills"), {
+      recursive: true,
+    });
+    return commit;
+  });
+  const source = await marketplaces.add("test/provenance");
+  const skill = marketplaces.catalogue(source.id)[0];
+  marketplaces.install(
+    source.id,
+    skill.id,
+    marketplaces.preview(source.id, skill.id).hash,
+    ["codex"],
+  );
+  const added = f.library.detail("sample").origin!;
+  assert.equal(added.repo, "test/provenance");
+  assert.equal(added.commit, commit);
+  assert.equal(added.installedAt, "2026-10-20T12:00:00.000Z");
+  assert.deepEqual(provenance(added), [
+    {
+      label: "Added from test/provenance",
+      commit: "abc1234",
+      url: "https://github.com/test/provenance/commit/abc123456789",
+      date: "2026-10-20",
+    },
+  ]);
+
+  for (const next of ["def567890123", "fed987654321"]) {
+    t.mock.timers.tick(86400000);
+    commit = next;
+    fs.appendFileSync(path.join(f.directory, "SKILL.md"), `${next}\n`);
+    await marketplaces.refresh(source.id);
+    marketplaces.update("sample", marketplaces.updatePreview("sample").hash);
+    const origin = f.library.detail("sample").origin!;
+    assert.equal(origin.repo, source.repo);
+    assert.equal(origin.commit, next);
+    assert.equal(origin.installedAt, new Date().toISOString());
+    assert.deepEqual(origin.added, {
+      commit: added.commit,
+      installedAt: added.installedAt,
+    });
+  }
+  const updated = f.library.detail("sample").origin!;
+  marketplaces.remove(source.id);
+  const reopened = new SkillLibrary(f.home);
+  assert.deepEqual(reopened.detail("sample").origin, updated);
+  assert.equal(
+    JSON.parse(
+      fs.readFileSync(path.join(reopened.state, "manifest.json"), "utf8"),
+    ).schema,
+    1,
+  );
+  const inspected = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "server/cli.ts",
+        "inspect",
+        "sample",
+        "--home",
+        f.home,
+      ],
+      { encoding: "utf8" },
+    ),
+  );
+  assert.deepEqual(inspected.origin, updated);
+  assert.deepEqual(inspected.provenance, [
+    "Added from test/provenance at abc1234 on 2026-10-20",
+    "Updated to fed9876 on 2026-10-22",
+  ]);
+});
+
+test("schema 1 origins without provenance still load and can be updated", (t) => {
+  const f = fixture();
+  t.after(() => fs.rmSync(f.home, { recursive: true }));
+  const skill = f.marketplaces.catalogue(f.id)[0];
+  const preview = f.marketplaces.preview(f.id, skill.id);
+  f.marketplaces.install(f.id, skill.id, preview.hash, ["codex"]);
+  const file = path.join(f.library.state, "manifest.json");
+  const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+  const origin = { source: f.id, path: skill.path, hash: preview.hash };
+  manifest.skills.sample.origin = origin;
+  fs.writeFileSync(file, JSON.stringify(manifest));
+  const library = new SkillLibrary(f.home);
+  assert.deepEqual(library.detail("sample").origin, origin);
+  assert.deepEqual(provenance(origin), []);
+  fs.appendFileSync(
+    path.join(f.directory, "SKILL.md"),
+    "Updated instructions\n",
+  );
+  const marketplaces = new Marketplaces(library);
+  marketplaces.update("sample", marketplaces.updatePreview("sample").hash);
+  assert.equal(library.detail("sample").origin?.repo, "owner/repo");
+  assert.equal(library.detail("sample").origin?.commit, "abc123");
+  assert.deepEqual(library.detail("sample").origin?.added, {});
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).schema, 1);
+});
 test("GitHub sources reject arbitrary hosts and arguments", () => {
   assert.equal(
     githubRepository("https://github.com/anthropics/skills.git"),
