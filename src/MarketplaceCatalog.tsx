@@ -1,4 +1,11 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -9,7 +16,12 @@ import {
 import { Popover } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api, type Marketplace, type SkillUpdate } from "./api";
+import {
+  api,
+  type CatalogueSkill,
+  type Marketplace,
+  type SkillUpdate,
+} from "./api";
 import type { HostedSkill } from "../server/skillsMd";
 import { ProductHeader, SkillIcon } from "./ProductHeader";
 
@@ -22,12 +34,62 @@ const MarkdownContent = lazy(() =>
 const PAGE_SIZE = 24;
 const compact = new Intl.NumberFormat("en", { notation: "compact" });
 const SHELF_COUNT = 6;
+const day = new Intl.DateTimeFormat("en", { dateStyle: "medium" });
+const plural = (count: number, word: string) =>
+  `${count} ${word}${count === 1 ? "" : "s"}`;
+
+// License, last change and contents for a GitHub package page. The page
+// header already links the repository.
+export function packageFacts(
+  skill: CatalogueSkill,
+  source: Marketplace,
+): [string, ReactNode][] {
+  const file = skill.licenseFile;
+  const label = skill.license || file?.split("/").pop();
+  const contents = [
+    skill.scripts && plural(skill.scripts, "script"),
+    skill.otherFiles && plural(skill.otherFiles, "other file"),
+  ].filter(Boolean);
+  return [
+    [
+      "License",
+      file ? (
+        <a
+          className="text-action"
+          href={
+            new URL(
+              file.split("/").map(encodeURIComponent).join("/"),
+              `https://github.com/${source.repo}/blob/${source.commit}/`,
+            ).href
+          }
+          target="_blank"
+          rel="noreferrer"
+        >
+          {label}
+        </a>
+      ) : (
+        label || "No license found"
+      ),
+    ],
+    [
+      "Last changed",
+      skill.changedAt &&
+        (skill.changedBefore ? "On or before " : "") +
+          day.format(new Date(skill.changedAt)),
+    ],
+    [
+      "Contents",
+      contents.length ? "Includes " + contents.join(" and ") : "Markdown only",
+    ],
+  ];
+}
 
 type CatalogSkill = HostedSkill & {
   key: string;
   source: string;
   repository?: Marketplace;
   folder?: string;
+  scripts?: number;
 };
 
 export function MarketplaceCatalog({
@@ -87,6 +149,7 @@ export function MarketplaceCatalog({
             source: source.repo,
             repository: source,
             folder: skill.path.split("/").pop(),
+            scripts: skill.scripts,
           })),
         ),
       })),
@@ -266,6 +329,7 @@ export function MarketplaceCatalog({
           <span className="store-tile-description">{skill.description}</span>
           <span className="store-tile-source">
             {skill.source}
+            {!!skill.scripts && " · Includes scripts"}
             {installs[skill.key] !== undefined &&
               ` · ${compact.format(installs[skill.key])} installs`}
           </span>

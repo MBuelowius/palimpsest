@@ -1611,19 +1611,7 @@ h3 {
   font-size: 12px;
   margin-top: 4px;
 }
-.store-row {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: min(320px, 85%);
-  grid-template-rows: repeat(3, auto);
-  gap: 4px 16px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  padding-bottom: 8px;
-}
-.store-row .store-tile {
-  scroll-snap-align: start;
-}
+.store-row,
 .store-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
@@ -1768,9 +1756,6 @@ button.store-tile:hover {
 @media (max-width: 600px) {
   .product-header {
     grid-template-columns: 1fr;
-  }
-  .store-row {
-    grid-template-rows: repeat(2, auto);
   }
   .product-facts {
     flex-direction: column;

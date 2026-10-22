@@ -41,6 +41,9 @@ test("marketplace combines sources and opens repository packages through the exi
       path: "skills/sample",
       description: "Repository package",
       issues: [],
+      license: "",
+      scripts: 2,
+      otherFiles: 0,
     },
   ];
   const root = createRoot(document.getElementById("root")!);
@@ -61,6 +64,7 @@ test("marketplace combines sources and opens repository packages through the exi
     assert.equal(document.querySelectorAll(".store-tile").length, 2);
     assert.match(document.body.textContent!, /skills.md/);
     assert.match(document.body.textContent!, /owner\/skills/);
+    assert.match(document.body.textContent!, /Includes scripts/);
     await act(async () => {
       (
         document.querySelector(
@@ -98,6 +102,9 @@ test("an unavailable source leaves skills from other sources browsable", async (
       path: "sample",
       description: "Still accessible",
       issues: [],
+      license: "",
+      scripts: 0,
+      otherFiles: 0,
     },
   ];
   const root = createRoot(document.getElementById("root")!);
@@ -201,6 +208,9 @@ test("tiles show Installed and Update for skills added from that collection", as
       path: "skills/" + id,
       description: id,
       issues: [],
+      license: "",
+      scripts: 0,
+      otherFiles: 0,
     }));
   const root = createRoot(document.getElementById("root")!);
   const entry = (name: string, update: boolean) => ({

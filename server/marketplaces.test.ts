@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { harnesses } from "./harnesses.ts";
@@ -281,5 +282,147 @@ test("a skill that is no longer one shared copy is not offered an update", () =>
     assert.equal(f.marketplaces.updates()[0].update, false);
   } finally {
     fs.rmSync(f.home, { recursive: true });
+  }
+});
+
+function write(root: string, files: Record<string, string>) {
+  for (const [file, content] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    fs.writeFileSync(path.join(root, file), content);
+  }
+}
+const skill = (license = "") =>
+  `---\nname: x\ndescription: X\n${license}---\n\nBody\n`;
+
+test("listings report the license and non-Markdown files from the download", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "marketplace-test-"));
+  const marketplaces = new Marketplaces(
+    new SkillLibrary(home),
+    async (repo, directory) => {
+      write(directory, {
+        "skills/front/SKILL.md": skill("license: Apache-2.0\n"),
+        "skills/packaged/SKILL.md": skill(),
+        "skills/packaged/LICENSE.txt": "Terms",
+        "skills/packaged/notes.md": "Notes",
+        "skills/packaged/scripts/run.py": "print()",
+        "skills/packaged/scripts/tool": "#!/bin/sh",
+        "skills/packaged/assets/logo.png": "png",
+        "skills/plain/SKILL.md": skill(),
+      });
+      fs.chmodSync(path.join(directory, "skills/packaged/scripts/tool"), 0o755);
+      if (repo === "test/licensed") write(directory, { COPYING: "Terms" });
+      return "commit";
+    },
+  );
+  const listing = async (repo: string) => {
+    const source = await marketplaces.add(repo);
+    return Object.fromEntries(
+      marketplaces
+        .catalogue(source.id)
+        .map(({ name, license, licenseFile, scripts, otherFiles }) => [
+          name,
+          { license, licenseFile, scripts, otherFiles },
+        ]),
+    );
+  };
+  try {
+    assert.deepEqual(await listing("test/licensed"), {
+      front: {
+        license: "Apache-2.0",
+        licenseFile: "COPYING",
+        scripts: 0,
+        otherFiles: 0,
+      },
+      packaged: {
+        license: "",
+        licenseFile: "skills/packaged/LICENSE.txt",
+        scripts: 2,
+        otherFiles: 1,
+      },
+      plain: {
+        license: "",
+        licenseFile: "COPYING",
+        scripts: 0,
+        otherFiles: 0,
+      },
+    });
+    const unlicensed = await listing("test/unlicensed");
+    assert.equal(unlicensed.plain.license, "");
+    assert.equal(unlicensed.plain.licenseFile, undefined);
+    assert.equal(unlicensed.front.license, "Apache-2.0");
+    // The listing comes from the download, not from rescanning the snapshot.
+    const id = marketplaces.list()[1].id;
+    fs.rmSync(path.join(marketplaces.root, id, "skills", "plain"), {
+      recursive: true,
+    });
+    assert.equal(marketplaces.catalogue(id).length, 3);
+  } finally {
+    fs.rmSync(home, { recursive: true });
+  }
+});
+
+test("listings date each package by the latest commit that touched it", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "marketplace-test-")),
+    upstream = path.join(home, "upstream");
+  const git = (cwd: string, args: string[], date?: string) =>
+    execFileSync("git", args, {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_AUTHOR_DATE: date,
+        GIT_COMMITTER_DATE: date,
+      },
+    });
+  fs.mkdirSync(upstream);
+  git(upstream, ["init", "-q"]);
+  for (const [folder, date] of [
+    ["old", "2026-01-01T00:00:00Z"],
+    ["middle", "2026-02-01T00:00:00Z"],
+    ["new", "2026-03-01T00:00:00Z"],
+  ]) {
+    write(upstream, { [folder + "/SKILL.md"]: skill() });
+    git(upstream, ["add", "."]);
+    git(
+      upstream,
+      ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", folder],
+      date,
+    );
+  }
+  const marketplaces = new Marketplaces(
+    new SkillLibrary(home),
+    async (_repo, directory) => {
+      git(home, [
+        "clone",
+        "-q",
+        "--depth",
+        "2",
+        "file://" + upstream,
+        directory,
+      ]);
+      return "commit";
+    },
+  );
+  try {
+    const source = await marketplaces.add("test/dated");
+    assert.deepEqual(
+      Object.fromEntries(
+        marketplaces
+          .catalogue(source.id)
+          .map(({ name, changedAt, changedBefore }) => [
+            name,
+            [new Date(changedAt!).toISOString().slice(0, 10), changedBefore],
+          ]),
+      ),
+      {
+        // "middle" is the oldest commit in the depth-2 snapshot.
+        old: ["2026-02-01", true],
+        middle: ["2026-02-01", true],
+        new: ["2026-03-01", false],
+      },
+    );
+  } finally {
+    fs.rmSync(home, { recursive: true });
   }
 });

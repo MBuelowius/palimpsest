@@ -30,7 +30,7 @@ export function ProductHeader({
   name: string;
   description: string;
   source: ReactNode;
-  facts: [string, string][];
+  facts: [string, ReactNode][];
   headingRef: Ref<HTMLHeadingElement>;
   headingId?: string;
   action?: ReactNode;
