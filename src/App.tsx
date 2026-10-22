@@ -3,6 +3,7 @@ import { SetupReview } from "./SetupReview";
 import { SettingsPage } from "./SettingsPage";
 import { SkillEditor } from "./SkillEditor";
 import { UpdateDialog } from "./UpdateDialog";
+import { provenance } from "../shared/provenance";
 import {
   useEffect,
   useState,
@@ -912,6 +913,20 @@ function SkillPage({
               ? detail.description || "No description yet."
               : "Reading skill…"}
           </p>
+          {provenance(detail?.origin).map(({ label, commit, url, date }) => (
+            <p className="muted" key={label}>
+              {label}
+              {commit && (
+                <>
+                  {label === "Updated to" ? " " : " at "}
+                  <a href={url} target="_blank" rel="noreferrer">
+                    {commit}
+                  </a>
+                </>
+              )}
+              {date && <> on {date}</>}
+            </p>
+          ))}
         </div>
       </header>
       {update && (

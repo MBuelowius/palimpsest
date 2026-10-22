@@ -239,7 +239,12 @@ export class Marketplaces {
       path.join(this.root, id, preview.path),
       hash,
       tools,
-      { source: id, path: preview.path },
+      {
+        source: id,
+        path: preview.path,
+        repo: preview.source.repo,
+        commit: preview.source.commit,
+      },
     );
   }
   // Skills added from a collection, with whether the collection's current
@@ -340,7 +345,12 @@ export class Marketplaces {
     };
   }
   update(name: string, hash: string) {
-    return this.library.updatePackage(name, this.pending(name).upstream, hash);
+    const { origin, upstream } = this.pending(name);
+    const source = this.source(origin.source);
+    return this.library.updatePackage(name, upstream, hash, {
+      repo: source.repo,
+      commit: source.commit,
+    });
   }
   applyUpdates(items: { name: string; hash: string }[]) {
     const updated: string[] = [],
