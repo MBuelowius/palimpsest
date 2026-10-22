@@ -7,6 +7,7 @@ import type { InventoryView } from "./api";
 import type { Tool } from "../shared/harnesses";
 import { api } from "./api";
 import { AccountDialog } from "./AccountDialog";
+import { Appearance } from "./Appearance";
 
 const shorten = (path: string) => path.replace(/^\/Users\/[^/]+/, "~");
 const evidenceLabels = {
@@ -130,6 +131,10 @@ export function SettingsPage({
     );
   return (
     <section className="locations" aria-label="Settings">
+      <section className="settings-section" aria-labelledby="appearance-title">
+        <h2 id="appearance-title">Appearance</h2>
+        <Appearance />
+      </section>
       <section className="settings-section" aria-labelledby="apps-title">
         <h2 id="apps-title">Your apps</h2>
         <p>

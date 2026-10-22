@@ -348,12 +348,30 @@ export function createServer(library: SkillLibrary, webDir: string) {
         ".png": "image/png",
         ".woff2": "font/woff2",
       };
+      let html: string | undefined;
+      if (path.extname(p) === ".html") {
+        const nonce = randomBytes(16).toString("base64");
+        html = fs
+          .readFileSync(p, "utf8")
+          .replace(
+            '<script id="appearance-init">',
+            `<script id="appearance-init" nonce="${nonce}">`,
+          );
+        res.setHeader(
+          "Content-Security-Policy",
+          String(res.getHeader("Content-Security-Policy")).replace(
+            "script-src 'self'",
+            `script-src 'self' 'nonce-${nonce}'`,
+          ),
+        );
+      }
       res.writeHead(200, {
         "Content-Type": type[path.extname(p)] ?? "application/octet-stream",
         "Cache-Control":
           path.extname(p) === ".html" ? "no-cache" : "public, max-age=3600",
       });
       if (req.method === "HEAD") res.end();
+      else if (html !== undefined) res.end(html);
       else fs.createReadStream(p).pipe(res);
     } catch (error) {
       send(res, error instanceof LibraryError ? error.status : 500, {
