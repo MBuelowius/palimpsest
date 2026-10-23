@@ -79,6 +79,43 @@ Sharing, syncing, and marketplace installation default to the detected harnesses
 
 Use `--home <existing-directory>` or `SKILL_LIBRARY_HOME` to select an isolated library. A different home detects only fixtures inside that directory, without scanning the host's PATH or system applications. State, backups, marketplace downloads, and server logs are stored under `<home>/.local/share/skill-library/state`. Local packages may contain private information; do not attach this state directory to a public issue.
 
+## Skill policy
+
+Connect a public GitHub repository containing `palimpsest-policy.yaml` at the root of its default branch:
+
+```sh
+palimpsest policy connect owner/repository
+palimpsest policy show
+palimpsest policy connect
+palimpsest policy disconnect
+```
+
+Commands print JSON. Connecting again, or `connect` without a repository, refreshes the policy manually. Disconnect before choosing another repository. Downloads use the same hardened clone as collections, and nothing in the policy repository is executed. The parsed policy stays in `state/policy.json` and works offline. An invalid refresh keeps the previous policy. Disconnect leaves installed skills, collections and backups unchanged.
+
+The file must be a regular file, not a symlink, and at most 64 KB. The smallest policy is `version: 1`, which allows everything. All other settings are optional:
+
+```yaml
+version: 1
+sources:
+  github:
+    - acme/agent-skills
+  skillsMd: false
+skills:
+  - source: acme/agent-skills
+    path: review/code-review
+    commit: 9b1f0c2d3e4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c
+blocked:
+  - web-scraper
+```
+
+`sources.github` lists allowed collections, compared without case sensitivity. Omit it to allow any GitHub collection; use `[]` to allow none. `sources.skillsMd` defaults to `true`. Each `skills` entry is required and pinned to a full 40-character lowercase commit hash. Its folder name is the last segment of `path`; paths must be relative and contain neither `..` nor backslashes. Names must be unique, valid library folder names and absent from `blocked`. Required sources must be allowed by `sources.github` when it is present. YAML aliases and duplicate keys are rejected.
+
+Policy checks refuse disallowed collection downloads, blocked installs and updates, and installs or updates that differ from a pin's repository, path or commit. Blocked skills cannot be shared, synced or enabled in another app. Existing skills are never deleted or turned off automatically; `show` reports missing skills, versions that differ from pins, occupied names, blocked skills and disallowed sources. Local skill creation remains available.
+
+This first part provides server enforcement and CLI connect, show and disconnect. Applying required skills, Settings controls, HTTP policy routes and the policy override for skills.md are coming in later parts. The `skillsMd` value is stored now; its override is not enforced yet.
+
+Unknown settings are ignored and listed as warnings. Within `version: 1`, new keys may only add information. A key that restricts what the client may do must raise `version`, because older clients ignore unknown keys. Versions newer than this client supports are rejected.
+
 ## Development
 
 ```sh

@@ -6,6 +6,7 @@ import { SkillLibrary, type Tool } from "./library.ts";
 import { createServer } from "./http.ts";
 
 import { Marketplaces } from "./marketplaces.ts";
+import { Policy } from "./policy.ts";
 import { detectHarnesses, harnessDefinitions } from "./harnesses.ts";
 import { runReview } from "./review.ts";
 import { provenance } from "../shared/provenance.ts";
@@ -43,6 +44,9 @@ palimpsest marketplace refresh <id>   Download the latest source snapshot
 palimpsest marketplace inspect <id> <skill-id>
 palimpsest marketplace install <id> <skill-id> [--apply]
 palimpsest marketplace remove <id>    Unregister a source
+palimpsest policy connect [<repo>]    Connect or refresh a public policy repository
+palimpsest policy show                Show policy, warnings and local differences
+palimpsest policy disconnect          Stop following the policy; skills stay installed
 palimpsest history                     List backups and operations
 palimpsest restore <operation-id>      Restore the latest operation
 
@@ -86,6 +90,17 @@ async function main() {
     );
     process.stdout.write(result.report + "\n");
     return;
+  }
+  if (command === "policy") {
+    const policy = new Policy(library),
+      action = args[1];
+    if (action === "connect")
+      return print(
+        await policy.connect(args[2]?.startsWith("--") ? undefined : args[2]),
+      );
+    if (action === "show") return print(policy.show());
+    if (action === "disconnect") return print(policy.disconnect());
+    throw new Error("Choose policy connect, show or disconnect.");
   }
   if (command === "marketplace") {
     const marketplaces = new Marketplaces(library),

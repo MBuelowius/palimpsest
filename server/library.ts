@@ -4,6 +4,7 @@ import os from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { parseDocument } from "yaml";
 import { createTwoFilesPatch } from "diff";
+import type { StoredPolicy } from "./policy.ts";
 import {
   baseTool,
   detectHarnesses,
@@ -102,7 +103,7 @@ const present = (p: string) => {
 };
 const within = (root: string, p: string) =>
   p === root || p.startsWith(root + path.sep);
-const namePattern = /^[a-z0-9][a-z0-9_-]{0,127}$/;
+export const namePattern = /^[a-z0-9][a-z0-9_-]{0,127}$/;
 
 export function metadata(content: string) {
   const issues: string[] = [];
@@ -342,7 +343,58 @@ export class SkillLibrary {
       ),
     );
   }
-  private json(p: string, value: unknown) {
+  policy(): StoredPolicy | undefined {
+    const file = path.join(this.state, "policy.json");
+    return present(file)
+      ? JSON.parse(fs.readFileSync(file, "utf8"))
+      : undefined;
+  }
+  checkCollection(repo: string) {
+    const allowed = this.policy()?.policy.sources.github;
+    if (
+      allowed &&
+      !allowed.some((source) => source.toLowerCase() === repo.toLowerCase())
+    )
+      throw new LibraryError(
+        allowed.length
+          ? "Your skill policy doesn't allow the collection " +
+              repo +
+              ". Allowed: " +
+              allowed.join(", ") +
+              "."
+          : "Your skill policy doesn't allow GitHub collections.",
+        409,
+      );
+  }
+  private checkPolicy(
+    name: string,
+    origin?: Partial<Pick<Origin, "repo" | "path" | "commit">>,
+  ) {
+    const policy = this.policy()?.policy;
+    if (!policy) return;
+    if (policy.blocked.includes(name))
+      throw new LibraryError("Your skill policy blocks " + name + ".", 409);
+    if (!origin) return;
+    if (origin.repo) this.checkCollection(origin.repo);
+    const pin = policy.skills.find((skill) => skill.name === name);
+    if (
+      pin &&
+      (origin.repo?.toLowerCase() !== pin.source.toLowerCase() ||
+        origin.path !== pin.path ||
+        origin.commit !== pin.commit)
+    )
+      throw new LibraryError(
+        "Your skill policy pins " +
+          name +
+          " to " +
+          pin.commit.slice(0, 7) +
+          " from " +
+          pin.source +
+          ". Apply the policy to install that version.",
+        409,
+      );
+  }
+  json(p: string, value: unknown) {
     fs.mkdirSync(path.dirname(p), { recursive: true, mode: 0o700 });
     const temp = p + "." + randomUUID() + ".tmp";
     fs.writeFileSync(temp, JSON.stringify(value, null, 2) + "\n", {
@@ -527,6 +579,7 @@ export class SkillLibrary {
   }
   private planSkill(skill: Skill, source: string, tools: Tool[]) {
     const { name, revision } = skill;
+    this.checkPolicy(name);
     if (!namePattern.test(name) || name === "synced")
       throw new LibraryError("Invalid skill folder name.");
     const chosen = this.variant(skill, source);
@@ -622,7 +675,7 @@ export class SkillLibrary {
         "OpenCode requires a name matching the folder, with up to 64 lowercase letters, numbers, and single hyphens.",
       );
   }
-  private lock<T>(run: () => T): T {
+  lock<T>(run: () => T): T {
     fs.mkdirSync(this.state, { recursive: true, mode: 0o700 });
     const lock = path.join(this.state, "write-lock");
     try {
@@ -755,6 +808,7 @@ export class SkillLibrary {
   }
   setEnabled(name: string, tool: Tool, enabled: boolean, revision: string) {
     return this.lock(() => {
+      if (enabled) this.checkPolicy(name);
       this.validateTools([tool]);
       const skill = this.skill(name, revision),
         canonical = path.join(this.shared, name);
@@ -919,6 +973,7 @@ export class SkillLibrary {
     origin?: Omit<Origin, "hash">,
   ) {
     return this.lock(() => {
+      this.checkPolicy(name, origin ?? {});
       if (!namePattern.test(name) || name === "synced")
         throw new LibraryError("Invalid skill folder name.");
       this.validateTools(tools);
@@ -983,6 +1038,7 @@ export class SkillLibrary {
       const entry = this.manifest().skills[name];
       if (!entry?.origin)
         throw new LibraryError("This skill was not added from a collection.");
+      this.checkPolicy(name, { ...entry.origin, ...origin });
       const skill = this.skill(name),
         canonical = path.join(this.shared, name);
       if (

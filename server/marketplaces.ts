@@ -69,7 +69,7 @@ function gitEnv() {
     GIT_LFS_SKIP_SMUDGE: "1",
   });
 }
-async function cloneRepository(repo: string, directory: string) {
+export async function cloneRepository(repo: string, directory: string) {
   const env = gitEnv();
   await run(
     "git",
@@ -245,6 +245,8 @@ function scan(root: string, changes: Changes = new Map()) {
 }
 const skillId = (relative: string) =>
   createHash("sha256").update(relative).digest("hex").slice(0, 16);
+export const sourceId = (repo: string) =>
+  createHash("sha256").update(repo.toLowerCase()).digest("hex").slice(0, 16);
 export class Marketplaces {
   readonly root: string;
   constructor(
@@ -276,10 +278,8 @@ export class Marketplaces {
   }
   private async download(input: string, refresh = false) {
     const repo = githubRepository(input),
-      id = createHash("sha256")
-        .update(repo.toLowerCase())
-        .digest("hex")
-        .slice(0, 16);
+      id = sourceId(repo);
+    this.library.checkCollection(repo);
     const existing = this.list().find((s) => s.id === id);
     if (existing && !refresh) return existing;
     fs.mkdirSync(this.root, { recursive: true });
@@ -287,6 +287,7 @@ export class Marketplaces {
     try {
       const commit = await this.clone(repo, directory),
         changes = await history(directory);
+      this.library.checkCollection(repo);
       const source = {
         id,
         repo,
@@ -410,6 +411,16 @@ export class Marketplaces {
   // Skills added from a collection, with whether the collection's current
   // snapshot differs from what was installed and whether the copy was edited.
   updates() {
+    const policy = this.library.policy()?.policy;
+    return this.updateStatuses().map((status) => ({
+      ...status,
+      update:
+        status.update &&
+        !policy?.blocked.includes(status.name) &&
+        !policy?.skills.some((skill) => skill.name === status.name),
+    }));
+  }
+  private updateStatuses() {
     const sources = new Map(this.list().map((s) => [s.id, s.repo])),
       skills = this.library.inventory().skills;
     return Object.entries(this.library.origins()).flatMap(([name, origin]) => {
@@ -438,7 +449,9 @@ export class Marketplaces {
     });
   }
   private pending(name: string) {
-    const status = this.updates().find((u) => u.name === name && u.update);
+    const status = this.updateStatuses().find(
+      (u) => u.name === name && u.update,
+    );
     if (!status) throw new LibraryError("No update is available.", 404);
     const origin = this.library.origins()[name];
     return {
