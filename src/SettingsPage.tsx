@@ -3,10 +3,12 @@ import { ArrowLeft, ChevronRight } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
 import { SyncSkills } from "./SyncSkills";
-import type { InventoryView } from "./api";
+import type { InventoryView, Marketplace } from "./api";
 import type { Tool } from "../shared/harnesses";
 import { api } from "./api";
 import { AccountDialog } from "./AccountDialog";
+import { Collections } from "./Collections";
+import { Switch } from "./components/ui/switch";
 import { Appearance } from "./Appearance";
 
 const shorten = (path: string) => path.replace(/^\/Users\/[^/]+/, "~");
@@ -19,19 +21,31 @@ const evidenceLabels = {
 
 export function SettingsPage({
   inventory,
+  sources,
+  onSourcesChange,
+  skillsMd,
+  onSkillsMdChange,
   onBrowse,
   onReviewSkills,
   onReviewSetup,
   onBackups,
   onChanged,
+  onNotice,
 }: {
   inventory: InventoryView;
+  sources: Marketplace[];
+  onSourcesChange: (sources: Marketplace[]) => Promise<void>;
+  skillsMd: boolean;
+  onSkillsMdChange: (skillsMd: boolean) => void;
   onBrowse: (tool: Tool) => void;
   onReviewSkills: () => void;
   onReviewSetup: () => void;
   onBackups: () => void;
   onChanged: (message: string) => Promise<void>;
+  onNotice: (message: string) => void;
 }) {
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
   const [showFiles, setShowFiles] = useState(false);
   const [accountError, setAccountError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
@@ -194,6 +208,53 @@ export function SettingsPage({
           Restart an app after changing its skills. Some apps also read skills
           from shared folders.
         </p>
+      </section>
+      <section className="settings-section" aria-labelledby="marketplace-title">
+        <h2 id="marketplace-title">Marketplace</h2>
+        <p>Choose where the marketplace gets skills.</p>
+        <div className="maintenance-row">
+          <div>
+            <h3>
+              <label htmlFor="skills-md-switch">Show skills.md catalog</label>
+            </h3>
+            <p id="skills-md-hint">
+              Lists skills from skills.md next to your collections. When this is
+              off, Palimpsest doesn't contact skills.md.
+            </p>
+          </div>
+          <div>
+            <Switch
+              id="skills-md-switch"
+              aria-describedby="skills-md-hint"
+              checked={skillsMd}
+              disabled={settingsBusy}
+              onCheckedChange={async (on) => {
+                setSettingsBusy(true);
+                setSettingsError("");
+                try {
+                  const saved = await api.saveSettings({ skillsMd: on });
+                  onSkillsMdChange(saved.skillsMd);
+                } catch (error) {
+                  setSettingsError((error as Error).message);
+                } finally {
+                  setSettingsBusy(false);
+                }
+              }}
+            />
+          </div>
+        </div>
+        {settingsError && (
+          <p role="alert" className="form-error">
+            {settingsError}
+          </p>
+        )}
+        <h3>Collections</h3>
+        <p>GitHub repositories you browse in the marketplace.</p>
+        <Collections
+          sources={sources}
+          onSourcesChange={onSourcesChange}
+          onMessage={onNotice}
+        />
       </section>
       <section className="settings-section" aria-labelledby="maintenance-title">
         <h2 id="maintenance-title">Keep your skills consistent</h2>

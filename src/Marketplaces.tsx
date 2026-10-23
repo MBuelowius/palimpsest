@@ -1,15 +1,13 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Loader2, RefreshCw, ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   api,
@@ -27,7 +25,7 @@ import { skillIssueText } from "./skillCopy";
 import { MarketplaceCatalog, packageFacts } from "./MarketplaceCatalog";
 import { ProductHeader } from "./ProductHeader";
 import { ScanFindings } from "./ScanFindings";
-import { SuggestedCollections } from "./SuggestedCollections";
+import { Collections } from "./Collections";
 
 const MarkdownContent = lazy(() =>
   import("./MarkdownContent").then((module) => ({
@@ -41,6 +39,9 @@ const list = (items: string[]) =>
     : items.slice(0, -1).join(", ") + " and " + items.at(-1);
 
 export function MarketplacesPage({
+  sources,
+  skillsMd,
+  onSourcesChange,
   harnesses,
   skills,
   updates,
@@ -48,6 +49,9 @@ export function MarketplacesPage({
   onOpenSkill,
   onUpdate,
 }: {
+  sources: Marketplace[];
+  skillsMd: boolean;
+  onSourcesChange: (sources: Marketplace[]) => Promise<void>;
   harnesses: Harness[];
   skills: InventoryView["skills"];
   updates: SkillUpdate[];
@@ -55,9 +59,7 @@ export function MarketplacesPage({
   onOpenSkill: (name: string) => void;
   onUpdate: (name: string) => void;
 }) {
-  const [sources, setSources] = useState<Marketplace[]>([]);
   const [addOpen, setAddOpen] = useState(false);
-  const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -91,74 +93,6 @@ export function MarketplacesPage({
       active = false;
     };
   }, [preview?.id]);
-  useEffect(() => {
-    api
-      .marketplaces()
-      .then((list) => {
-        setSources(list);
-      })
-      .catch((e) => setError(e.message));
-  }, []);
-  async function add(value: string) {
-    setBusy(true);
-    setError("");
-    setMessage("");
-    const entries = [
-      ...new Set(
-        value
-          .split(/[\n,]+/)
-          .map((entry) => entry.trim())
-          .filter(Boolean),
-      ),
-    ];
-    const failed: string[] = [];
-    let lastSource: Marketplace | undefined;
-    try {
-      for (const entry of entries) {
-        try {
-          lastSource = await api.addMarketplace(entry);
-        } catch (error) {
-          failed.push(entry);
-          setError((error as Error).message);
-        }
-      }
-      setSources(await api.marketplaces());
-      if (lastSource) {
-        const ready = entries.length - failed.length;
-        setMessage(
-          `${ready} ${ready === 1 ? "collection" : "collections"} ready to browse.`,
-        );
-      }
-      setUrl(failed.join("\n"));
-      if (!failed.length) setAddOpen(false);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function refreshSource(source: Marketplace) {
-    setBusy(true);
-    setError("");
-    setMessage("");
-    try {
-      const updated = await api.refreshMarketplace(source.id);
-      setSources(await api.marketplaces());
-      await onInstalled();
-      const outdated = (await api.updates()).filter((item) => item.update);
-      setMessage(
-        outdated.length
-          ? `${outdated.length} of your skills ${outdated.length === 1 ? "has an update" : "have updates"}. Open My skills to review ${outdated.length === 1 ? "it" : "them"}.`
-          : updated.commit === source.commit
-            ? "This collection is up to date."
-            : "New skills are ready to browse. Skills you’ve already added stay as they are.",
-      );
-    } catch (error) {
-      setError((error as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
   async function install() {
     if (!preview) return;
     setBusy(true);
@@ -364,6 +298,7 @@ export function MarketplacesPage({
         )}
         <MarketplaceCatalog
           sources={sources}
+          skillsMd={skillsMd}
           skills={skills}
           updates={updates}
           onManageSources={() => {
@@ -376,12 +311,7 @@ export function MarketplacesPage({
             setPreview(await api.marketplacePreview(sourceId, skillId));
           }}
         />
-        <Dialog
-          open={addOpen}
-          onOpenChange={(open) => {
-            if (!busy) setAddOpen(open);
-          }}
-        >
+        <Dialog open={addOpen} onOpenChange={setAddOpen}>
           <DialogContent className="marketplace-add">
             <DialogHeader>
               <DialogTitle>Manage collections</DialogTitle>
@@ -390,101 +320,12 @@ export function MarketplacesPage({
                 add several links, one per line.
               </DialogDescription>
             </DialogHeader>
-            <section
-              className="collection-management"
-              aria-label="Added collections"
-            >
-              <div className="collection-management-row">
-                <span>
-                  skills.md<small>Built-in catalog</small>
-                </span>
-              </div>
-              {sources.map((source) => (
-                <div className="collection-management-row" key={source.id}>
-                  <span>
-                    {source.repo}
-                    <small>
-                      Checked{" "}
-                      {new Date(
-                        source.refreshedAt ?? source.addedAt,
-                      ).toLocaleDateString()}
-                    </small>
-                  </span>
-                  <div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => void refreshSource(source)}
-                    >
-                      <RefreshCw size={14} />
-                      Refresh
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy}
-                      onClick={async () => {
-                        setBusy(true);
-                        setError("");
-                        try {
-                          await api.removeMarketplace(source.id);
-                          setSources(await api.marketplaces());
-                        } catch (error) {
-                          setError((error as Error).message);
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </section>
-            <SuggestedCollections
+            <Collections
               sources={sources}
-              busy={busy}
-              onAdd={(repo) => void add(repo)}
+              onSourcesChange={onSourcesChange}
+              onMessage={setMessage}
+              onAdded={() => setAddOpen(false)}
             />
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void add(url);
-              }}
-            >
-              <label className="field-label" htmlFor="marketplace-url">
-                Collection links
-              </label>
-              <Textarea
-                id="marketplace-url"
-                aria-label="Collection links"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder={
-                  "https://github.com/owner/repository\nopenai/skills"
-                }
-                rows={4}
-                required
-                disabled={busy}
-              />
-              <p className="field-hint">
-                Links that work are saved. Any that couldn’t be added stay here
-                so you can correct them.
-              </p>
-              {error && (
-                <p className="form-error" role="alert">
-                  {error}
-                </p>
-              )}
-              <DialogFooter>
-                <Button type="submit" disabled={busy || !url.trim()}>
-                  {busy && <Loader2 className="spin" size={15} />}{" "}
-                  {busy ? "Loading…" : "Add collection"}
-                </Button>
-              </DialogFooter>
-            </form>
           </DialogContent>
         </Dialog>
       </section>

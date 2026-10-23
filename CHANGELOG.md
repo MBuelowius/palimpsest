@@ -6,6 +6,7 @@ User-visible changes are recorded here. Entries under Unreleased are not publish
 
 ### Added
 
+- Marketplace section in Settings with collections and a switch to hide the skills.md catalog.
 - Repository, license, last change date and contents on GitHub marketplace skill pages, and "Includes scripts" on their cards. Discover shelves wrap instead of cutting off cards.
 - Light, Dark, and System appearance choices in Settings, remembered in this browser.
 - Suggested GitHub skill collections in Sources, with a link from the empty marketplace.

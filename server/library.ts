@@ -16,6 +16,7 @@ import {
 } from "./harnesses.ts";
 
 export type { Tool } from "./harnesses.ts";
+export type Settings = { skillsMd: boolean };
 export type Variant = {
   id: string;
   tool: Tool | "shared";
@@ -226,6 +227,17 @@ export class SkillLibrary {
   accounts(): Account[] {
     const p = path.join(this.state, "accounts.json");
     return present(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : [];
+  }
+  settings(): Settings {
+    const p = path.join(this.state, "settings.json");
+    const saved = present(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : {};
+    return { skillsMd: saved.skillsMd !== false };
+  }
+  saveSettings(settings: Settings) {
+    return this.lock(() => {
+      this.json(path.join(this.state, "settings.json"), settings);
+      return this.settings();
+    });
   }
   harnesses(): Harness[] {
     const accounts = this.accounts();

@@ -57,6 +57,8 @@ import {
   type FileContent,
   type History,
   type SkillUpdate,
+  type Marketplace,
+  type Settings,
 } from "./api";
 import type { Harness, Tool } from "../server/harnesses";
 import { toolName, sourceName } from "../shared/harnesses";
@@ -89,6 +91,9 @@ export function App() {
   const pageHeading = useRef<HTMLHeadingElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const skillNavigation = useRef<SkillNavigation>(null);
+  const [sources, setSources] = useState<Marketplace[]>([]);
+  const [settings, setSettings] = useState<Settings>();
+  const [settingsError, setSettingsError] = useState("");
   const [skillBusy, setSkillBusy] = useState(false);
   const [layout, setLayout] = useState<"table" | "list">("table");
   const [setupReviewOpen, setSetupReviewOpen] = useState(false);
@@ -131,6 +136,18 @@ export function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  useEffect(() => {
+    Promise.all([api.marketplaces(), api.settings()])
+      .then(([list, saved]) => {
+        setSources(list);
+        setSettings(saved);
+      })
+      .catch((e) => setSettingsError(e.message));
+  }, []);
+  const onSourcesChange = async (list: Marketplace[]) => {
+    setSources(list);
+    await refresh();
+  };
   const outdated = updates.filter((item) => item.update);
   async function checkForUpdates() {
     setChecking(true);
@@ -306,15 +323,18 @@ export function App() {
             )}
           </div>
         </header>
-        {error && (
+        {(error || settingsError) && (
           <div className="message error" role="alert">
             <AlertCircle size={17} />
-            <span>{error}</span>
+            <span>{error || settingsError}</span>
             <Button
               variant="ghost"
               size="icon-sm"
               aria-label="Dismiss error"
-              onClick={() => setError("")}
+              onClick={() => {
+                setError("");
+                setSettingsError("");
+              }}
             >
               <X size={15} />
             </Button>
@@ -510,16 +530,21 @@ export function App() {
             }}
           />
         )}
-        <div hidden={view !== "marketplaces"}>
-          <MarketplacesPage
-            harnesses={inventory?.harnesses ?? []}
-            skills={inventory?.skills ?? []}
-            updates={updates}
-            onInstalled={refresh}
-            onOpenSkill={openSkill}
-            onUpdate={(name) => setUpdateNames([name])}
-          />
-        </div>
+        {settings && (
+          <div hidden={view !== "marketplaces"}>
+            <MarketplacesPage
+              sources={sources}
+              skillsMd={settings.skillsMd}
+              onSourcesChange={onSourcesChange}
+              harnesses={inventory?.harnesses ?? []}
+              skills={inventory?.skills ?? []}
+              updates={updates}
+              onInstalled={refresh}
+              onOpenSkill={openSkill}
+              onUpdate={(name) => setUpdateNames([name])}
+            />
+          </div>
+        )}
         <UpdateDialog
           names={updateNames}
           onClose={() => setUpdateNames(null)}
@@ -571,10 +596,15 @@ export function App() {
             )}
           </section>
         )}
-        {view === "settings" && inventory && (
+        {view === "settings" && inventory && settings && (
           <SettingsPage
             inventory={inventory}
+            sources={sources}
+            onSourcesChange={onSourcesChange}
+            skillsMd={settings.skillsMd}
+            onSkillsMdChange={(skillsMd) => setSettings({ skillsMd })}
             onChanged={changed}
+            onNotice={setNotice}
             onBrowse={(tool) => {
               setToolFilter(tool);
               setAttentionOnly(false);

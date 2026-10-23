@@ -63,13 +63,21 @@ export function createServer(library: SkillLibrary, webDir: string) {
           if (req.headers["content-type"] !== "application/json")
             throw new LibraryError("Expected JSON.", 415);
         }
-        if (url.pathname === "/api/skills-md" && req.method === "GET")
+        if (url.pathname === "/api/settings" && req.method === "GET")
+          return send(res, 200, library.settings());
+        if (url.pathname === "/api/skills-md" && req.method === "GET") {
+          if (!library.settings().skillsMd)
+            throw new LibraryError("skills.md is turned off in Settings.", 409);
           return send(res, 200, await skillsMd.catalogue());
+        }
         const hostedMatch = url.pathname.match(
           /^\/api\/skills-md\/([a-zA-Z0-9_-]+)$/,
         );
-        if (hostedMatch && req.method === "GET")
+        if (hostedMatch && req.method === "GET") {
+          if (!library.settings().skillsMd)
+            throw new LibraryError("skills.md is turned off in Settings.", 409);
           return send(res, 200, await skillsMd.instructions(hostedMatch[1]));
+        }
         if (url.pathname === "/api/installs" && req.method === "GET")
           return send(
             res,
@@ -129,6 +137,15 @@ export function createServer(library: SkillLibrary, webDir: string) {
             throw new LibraryError("Missing field: " + key);
           return body[key] as string;
         };
+        if (url.pathname === "/api/settings" && req.method === "PUT") {
+          if (typeof body.skillsMd !== "boolean")
+            throw new LibraryError("Missing skillsMd setting.");
+          return send(
+            res,
+            200,
+            library.saveSettings({ skillsMd: body.skillsMd }),
+          );
+        }
         if (url.pathname === "/api/review" && req.method === "POST") {
           if (reviewing)
             throw new LibraryError(
