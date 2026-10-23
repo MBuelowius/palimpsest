@@ -3,7 +3,8 @@ import { ArrowLeft, ChevronRight } from "lucide-react";
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
 import { SyncSkills } from "./SyncSkills";
-import type { InventoryView, Marketplace } from "./api";
+import type { InventoryView, Marketplace, PolicyState } from "./api";
+import { PolicySettings } from "./PolicySettings";
 import type { Tool } from "../shared/harnesses";
 import { api } from "./api";
 import { AccountDialog } from "./AccountDialog";
@@ -24,6 +25,8 @@ export function SettingsPage({
   sources,
   onSourcesChange,
   skillsMd,
+  policy,
+  onPolicyChange,
   onSkillsMdChange,
   onBrowse,
   onReviewSkills,
@@ -36,6 +39,8 @@ export function SettingsPage({
   sources: Marketplace[];
   onSourcesChange: (sources: Marketplace[]) => Promise<void>;
   skillsMd: boolean;
+  policy: PolicyState;
+  onPolicyChange: (policy: PolicyState) => void;
   onSkillsMdChange: (skillsMd: boolean) => void;
   onBrowse: (tool: Tool) => void;
   onReviewSkills: () => void;
@@ -50,6 +55,8 @@ export function SettingsPage({
   const [accountError, setAccountError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const filesButton = useRef<HTMLButtonElement>(null);
+  const policyDisablesSkillsMd =
+    "policy" in policy && !policy.policy.sources.skillsMd;
   const reviewCount = inventory.skills.filter(
     (skill) => skill.status === "conflict" || skill.issues.length,
   ).length;
@@ -218,16 +225,17 @@ export function SettingsPage({
               <label htmlFor="skills-md-switch">Show skills.md catalog</label>
             </h3>
             <p id="skills-md-hint">
-              Lists skills from skills.md next to your collections. When this is
-              off, Palimpsest doesn't contact skills.md.
+              {policyDisablesSkillsMd
+                ? "Turned off by your skill policy."
+                : "Lists skills from skills.md next to your collections. When this is off, Palimpsest doesn't contact skills.md."}
             </p>
           </div>
           <div>
             <Switch
               id="skills-md-switch"
               aria-describedby="skills-md-hint"
-              checked={skillsMd}
-              disabled={settingsBusy}
+              checked={skillsMd && !policyDisablesSkillsMd}
+              disabled={settingsBusy || policyDisablesSkillsMd}
               onCheckedChange={async (on) => {
                 setSettingsBusy(true);
                 setSettingsError("");
@@ -256,6 +264,12 @@ export function SettingsPage({
           onMessage={onNotice}
         />
       </section>
+      <PolicySettings
+        policy={policy}
+        onPolicyChange={onPolicyChange}
+        onChanged={onChanged}
+        onNotice={onNotice}
+      />
       <section className="settings-section" aria-labelledby="maintenance-title">
         <h2 id="maintenance-title">Keep your skills consistent</h2>
         <div className="maintenance-row">

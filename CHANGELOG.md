@@ -6,9 +6,10 @@ User-visible changes are recorded here. Entries under Unreleased are not publish
 
 ### Added
 
+- Skill policy controls in Settings: connect, refresh, inspect differences, preview and confirm pinned installs, and disconnect. Policy-disabled skills.md stays off without changing the saved preference.
 - `policy apply` previews required pinned installs and updates, including scan findings and skipped names. `--apply` saves them as one operation that a single restore undoes.
 
-- Public GitHub skill policy files with CLI connect, offline show, manual refresh and disconnect; server checks for allowed collections, blocked skills and pinned installs/updates, plus local drift reporting. Settings controls and the skills.md policy override follow separately.
+- Public GitHub skill policy files with CLI connect, offline show, manual refresh and disconnect; server checks for allowed collections, blocked skills and pinned installs/updates, plus local drift reporting.
 - Marketplace section in Settings with collections and a switch to hide the skills.md catalog.
 - Repository, license, last change date and contents on GitHub marketplace skill pages, and "Includes scripts" on their cards. Discover shelves wrap instead of cutting off cards.
 - Light, Dark, and System appearance choices in Settings, remembered in this browser.

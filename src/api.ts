@@ -5,6 +5,9 @@ import type {
 } from "../server/marketplaces";
 import type { HostedSkill } from "../server/skillsMd";
 import type { Settings } from "../server/library";
+import type { Policy } from "../server/policy";
+export type PolicyState = ReturnType<Policy["show"]>;
+export type PolicyPreview = Awaited<ReturnType<Policy["preview"]>>;
 export type { Settings };
 export type MarketplacePreview = ReturnType<Marketplaces["preview"]>;
 export type SkillUpdate = ReturnType<Marketplaces["updates"]>[number];
@@ -53,6 +56,17 @@ async function request<T>(
 }
 const skillUrl = (name: string) => "/api/skills/" + encodeURIComponent(name);
 export const api = {
+  policy: () => request<PolicyState>("/api/policy"),
+  connectPolicy: (repo?: string) =>
+    request<PolicyState>("/api/policy", "POST", { repo }),
+  disconnectPolicy: () => request<PolicyState>("/api/policy", "DELETE"),
+  policyPreview: (tools?: Tool[]) =>
+    request<PolicyPreview>("/api/policy/plan", "POST", { tools }),
+  applyPolicy: (preview: PolicyPreview) =>
+    request<ReturnType<Policy["apply"]>>("/api/policy/apply", "POST", {
+      changes: preview.changes.map(({ name, hash }) => ({ name, hash })),
+      tools: preview.tools,
+    }),
   settings: () => request<Settings>("/api/settings"),
   saveSettings: (settings: Settings) =>
     request<Settings>("/api/settings", "PUT", settings),

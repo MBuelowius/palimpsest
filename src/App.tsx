@@ -59,6 +59,7 @@ import {
   type SkillUpdate,
   type Marketplace,
   type Settings,
+  type PolicyState,
 } from "./api";
 import type { Harness, Tool } from "../server/harnesses";
 import { toolName, sourceName } from "../shared/harnesses";
@@ -93,6 +94,7 @@ export function App() {
   const skillNavigation = useRef<SkillNavigation>(null);
   const [sources, setSources] = useState<Marketplace[]>([]);
   const [settings, setSettings] = useState<Settings>();
+  const [policy, setPolicy] = useState<PolicyState>();
   const [settingsError, setSettingsError] = useState("");
   const [skillBusy, setSkillBusy] = useState(false);
   const [layout, setLayout] = useState<"table" | "list">("table");
@@ -117,15 +119,17 @@ export function App() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [items, operations, available] = await Promise.all([
+      const [items, operations, available, policy] = await Promise.all([
         api.inventory(),
         api.history(),
         // Update info is an extra: a failed lookup just hides the update notes.
         api.updates().catch(() => [] as SkillUpdate[]),
+        api.policy(),
       ]);
       setInventory(items);
       setHistory(operations);
       setUpdates(available);
+      setPolicy(policy);
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -530,11 +534,14 @@ export function App() {
             }}
           />
         )}
-        {settings && (
+        {settings && policy && (
           <div hidden={view !== "marketplaces"}>
             <MarketplacesPage
               sources={sources}
-              skillsMd={settings.skillsMd}
+              skillsMd={
+                settings.skillsMd &&
+                !("policy" in policy && !policy.policy.sources.skillsMd)
+              }
               onSourcesChange={onSourcesChange}
               harnesses={inventory?.harnesses ?? []}
               skills={inventory?.skills ?? []}
@@ -596,12 +603,14 @@ export function App() {
             )}
           </section>
         )}
-        {view === "settings" && inventory && settings && (
+        {view === "settings" && inventory && settings && policy && (
           <SettingsPage
             inventory={inventory}
             sources={sources}
             onSourcesChange={onSourcesChange}
             skillsMd={settings.skillsMd}
+            policy={policy}
+            onPolicyChange={setPolicy}
             onSkillsMdChange={(skillsMd) => setSettings({ skillsMd })}
             onChanged={changed}
             onNotice={setNotice}
