@@ -1,6 +1,6 @@
 # Palimpsest
 
-Palimpsest is one local skill library for people who use Claude Code, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot, or Windsurf / Devin. Preview skills from public collections and skills.md, with scripts and hidden characters flagged for review before you add anything. Keep a shared skill policy in a Git repository.
+Palimpsest is one local skill library for people who use Claude Code, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot, or Windsurf / Devin. Preview skills from public collections and skills.md, with scripts and hidden characters flagged for review before you add anything. Optionally follow a skill policy kept in a Git repository: allowed collections, pinned versions, and blocked skills, applied as one change you can undo.
 
 This is an early project: review previews before applying changes and keep an independent backup of your skills.
 
