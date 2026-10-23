@@ -80,7 +80,7 @@ export class LibraryError extends Error {
   }
 }
 
-const ignored = new Set([
+export const ignored = new Set([
   ".git",
   "node_modules",
   ".venv",

@@ -16,7 +16,7 @@ export type Finding = {
 export type PackageScan = { findings: Finding[]; truncated: boolean };
 
 const findingLimit = 100;
-const scriptExtension = /\.(?:sh|bash|zsh|py|js|mjs|cjs|ts|rb|pl|ps1)$/i;
+export const scriptExtension = /\.(?:sh|bash|zsh|py|js|mjs|cjs|ts|rb|pl|ps1)$/i;
 const hiddenCharacters =
   /[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\u{e0000}-\u{e007f}]/gu;
 const credentialPath =

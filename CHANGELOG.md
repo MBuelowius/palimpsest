@@ -6,6 +6,7 @@ User-visible changes are recorded here. Entries under Unreleased are not publish
 
 ### Added
 
+- Repository, license, last change date and contents on GitHub marketplace skill pages, and "Includes scripts" on their cards. Discover shelves wrap instead of cutting off cards.
 - Light, Dark, and System appearance choices in Settings, remembered in this browser.
 - Suggested GitHub skill collections in Sources, with a link from the empty marketplace.
 - Repository, commit, and install/update dates in skill details and CLI inspection, retained after collection removal.

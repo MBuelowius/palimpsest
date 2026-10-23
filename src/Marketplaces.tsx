@@ -24,7 +24,7 @@ import type { Harness } from "../server/harnesses";
 import { defaultTools } from "./HarnessChoice";
 import { InstallControl } from "./InstallControl";
 import { skillIssueText } from "./skillCopy";
-import { MarketplaceCatalog } from "./MarketplaceCatalog";
+import { MarketplaceCatalog, packageFacts } from "./MarketplaceCatalog";
 import { ProductHeader } from "./ProductHeader";
 import { ScanFindings } from "./ScanFindings";
 import { SuggestedCollections } from "./SuggestedCollections";
@@ -228,6 +228,7 @@ export function MarketplacesPage({
                 ),
           ],
           ["Files", String(preview.files.length)],
+          ...packageFacts(preview, preview.source),
           [
             "To check",
             preview.issues.length ? String(preview.issues.length) : "",
