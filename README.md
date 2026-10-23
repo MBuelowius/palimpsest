@@ -85,12 +85,16 @@ Connect a public GitHub repository containing `palimpsest-policy.yaml` at the ro
 
 ```sh
 palimpsest policy connect owner/repository
+palimpsest policy apply                # Preview required installs and updates
+palimpsest policy apply --apply        # Apply together; one restore undoes all changes
 palimpsest policy show
 palimpsest policy connect
 palimpsest policy disconnect
 ```
 
 Commands print JSON. Connecting again, or `connect` without a repository, refreshes the policy manually. Disconnect before choosing another repository. Downloads use the same hardened clone as collections, and nothing in the policy repository is executed. The parsed policy stays in `state/policy.json` and works offline. An invalid refresh keeps the previous policy. Disconnect leaves installed skills, collections and backups unchanged.
+
+Apply downloads pinned snapshots to a local cache and previews changes, scan findings and skipped skills. It changes no skills without `--apply`. Applying creates one backup operation; `palimpsest restore <operation-id>` undoes every install and update together. Existing skills with another origin are skipped, and existing apps stay enabled or disabled. Nothing downloaded is executed. Snapshots are reused until disconnect.
 
 The file must be a regular file, not a symlink, and at most 64 KB. The smallest policy is `version: 1`, which allows everything. All other settings are optional:
 
@@ -112,7 +116,7 @@ blocked:
 
 Policy checks refuse disallowed collection downloads, blocked installs and updates, and installs or updates that differ from a pin's repository, path or commit. Blocked skills cannot be shared, synced or enabled in another app. Existing skills are never deleted or turned off automatically; `show` reports missing skills, versions that differ from pins, occupied names, blocked skills and disallowed sources. Local skill creation remains available.
 
-This first part provides server enforcement and CLI connect, show and disconnect. Applying required skills, Settings controls, HTTP policy routes and the policy override for skills.md are coming in later parts. The `skillsMd` value is stored now; its override is not enforced yet.
+Settings controls, HTTP policy routes and the policy override for skills.md are coming in the next part. The `skillsMd` value is stored now; its override is not enforced yet.
 
 Unknown settings are ignored and listed as warnings. Within `version: 1`, new keys may only add information. A key that restricts what the client may do must raise `version`, because older clients ignore unknown keys. Versions newer than this client supports are rejected.
 

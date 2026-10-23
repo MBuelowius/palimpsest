@@ -31,6 +31,7 @@ export function changeDescription(label: string): string {
   if (label === "Edit SKILL.md") return "Edited instructions";
   if (label === "Install marketplace skill") return "Added from a collection";
   if (label === "Update marketplace skill") return "Updated from a collection";
+  if (label === "Apply skill policy") return "Applied skill policy";
   if (label === "Create skill") return "Created skill";
   if (label.startsWith("Edit ")) return "Edited " + label.slice("Edit ".length);
   if (label.startsWith("Share with "))

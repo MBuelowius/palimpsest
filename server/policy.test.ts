@@ -6,7 +6,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { stringify } from "yaml";
 import { LibraryError, SkillLibrary, tree } from "./library.ts";
-import { Marketplaces, sourceId } from "./marketplaces.ts";
+import { fetchCommit, Marketplaces, sourceId } from "./marketplaces.ts";
 import { parsePolicy, Policy } from "./policy.ts";
 
 const commit = "9b1f0c2d3e4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c";
@@ -659,4 +659,461 @@ test("CLI show and disconnect use the fixture policy in an isolated --home", asy
   assert.deepEqual(cli("show"), f.policy.show());
   assert.deepEqual(cli("disconnect"), { connected: false });
   assert.deepEqual(cli("show"), { connected: false });
+});
+
+async function applyFixture(t: TestContext) {
+  const f = fixture(t),
+    packages = path.join(f.home, "pinned-repo"),
+    old = put(path.join(f.home, "old"), "update", "Previous instructions");
+  f.library.installPackage("update", old, tree(old).hash, ["claude"], {
+    source: sourceId("owner/repo"),
+    repo: "owner/repo",
+    path: "skills/update",
+    commit,
+  });
+  for (const name of ["install", "update"])
+    put(path.join(packages, "skills", name), name, "Pinned instructions");
+  fs.writeFileSync(
+    path.join(packages, "skills/install/do-not-run.sh"),
+    "exit 99\n",
+  );
+  let fetches = 0;
+  const policy = new Policy(
+    f.library,
+    async () => {
+      throw new Error("Must not clone during apply");
+    },
+    async (repo, sha, directory) => {
+      assert.equal(repo, "owner/repo");
+      assert.equal(sha, nextCommit);
+      fetches++;
+      fs.cpSync(packages, directory, {
+        recursive: true,
+        verbatimSymlinks: true,
+      });
+    },
+  );
+  await f.connect(
+    stringify({
+      version: 1,
+      skills: ["install", "update"].map((name) => ({
+        source: "owner/repo",
+        path: "skills/" + name,
+        commit: nextCommit,
+      })),
+    }),
+  );
+  const snapshot = path.join(
+    f.library.state,
+    "policy",
+    "snapshots",
+    sourceId("owner/repo") + "-" + nextCommit,
+  );
+  return { ...f, policy, packages, snapshot, fetches: () => fetches };
+}
+
+const stalePreview = (error: unknown) => {
+  assert.ok(error instanceof LibraryError);
+  assert.equal(error.status, 409);
+  assert.equal(
+    error.message,
+    "The policy or your skills changed. Preview again.",
+  );
+  return true;
+};
+
+test("policy preview caches a fixture snapshot, lists install and edited update, and writes no skills", async (t) => {
+  const f = await applyFixture(t);
+  fs.appendFileSync(
+    path.join(f.library.shared, "update/SKILL.md"),
+    "Local edits",
+  );
+  const before = f.library.inventory(),
+    history = f.library.history(),
+    preview = await f.policy.preview(["claude", "codex"]);
+  assert.deepEqual(
+    preview.changes.map(({ name, action, edited }) => ({
+      name,
+      action,
+      edited,
+    })),
+    [
+      { name: "install", action: "install", edited: false },
+      { name: "update", action: "update", edited: true },
+    ],
+  );
+  assert.equal(preview.repo, "team/policy");
+  assert.equal(preview.commit, commit);
+  assert.deepEqual(preview.tools, ["claude", "codex"]);
+  assert.deepEqual(preview.skipped, []);
+  assert.ok(preview.changes[0].scan.findings.length > 0);
+  assert.deepEqual(f.library.inventory(), before);
+  assert.deepEqual(f.library.history(), history);
+  assert.deepEqual(await f.policy.preview(preview.tools), preview);
+  assert.equal(f.fetches(), 1);
+  assert.deepEqual(fs.readdirSync(path.dirname(f.snapshot)), [
+    path.basename(f.snapshot),
+  ]);
+});
+
+test("policy apply records one operation, preserves origin and enabled apps, and one restore undoes both steps", async (t) => {
+  const f = await applyFixture(t),
+    before = f.library.inventory(),
+    origins = f.library.origins(),
+    history = f.library.history(),
+    preview = await f.policy.preview(["claude", "codex"]);
+  const applied = f.policy.apply(preview.changes, preview.tools);
+  assert.ok(applied.operation);
+  assert.equal(applied.operation.label, "Apply skill policy");
+  assert.equal(f.library.history().length, history.length + 1);
+  assert.equal(f.library.history()[0].name, "Skill policy");
+  for (const name of ["install", "update"]) {
+    const installed = f.library.skill(name),
+      origin = f.library.origins()[name];
+    assert.equal(installed.status, "shared");
+    assert.match(installed.variants[0].content, /Pinned instructions/);
+    assert.equal(origin.commit, nextCommit);
+    assert.equal(origin.source, sourceId("owner/repo"));
+    assert.equal(origin.path, "skills/" + name);
+    assert.equal(origin.hash, tree(path.join(f.library.shared, name)).hash);
+  }
+  assert.deepEqual(f.library.skill("install").tools.sort(), [
+    "claude",
+    "codex",
+  ]);
+  assert.deepEqual(f.library.skill("update").tools, ["claude"]);
+  assert.equal(f.library.origins().update.added?.commit, commit);
+  const empty = await f.policy.preview(preview.tools);
+  assert.deepEqual(empty.changes, []);
+  assert.deepEqual(f.policy.apply(empty.changes, empty.tools), {});
+  assert.equal(f.library.history().length, history.length + 1);
+  f.library.restore(applied.operation.id);
+  assert.deepEqual(f.library.inventory(), before);
+  assert.deepEqual(f.library.origins(), origins);
+  assert.equal(
+    fs.existsSync(path.join(f.home, ".agents/skills/install")),
+    false,
+  );
+  assert.equal(f.fetches(), 1);
+});
+
+test("policy apply refuses changed content, policy, targets, missing snapshots and changed names without writing", async (t) => {
+  for (const kind of [
+    "package",
+    "local",
+    "policy",
+    "tools",
+    "missing",
+    "names",
+    "hash",
+  ])
+    await t.test(kind, async (t) => {
+      const f = await applyFixture(t),
+        preview = await f.policy.preview(["claude"]);
+      if (kind === "package")
+        fs.appendFileSync(
+          path.join(f.snapshot, "skills/install/SKILL.md"),
+          "Changed upstream",
+        );
+      if (kind === "local")
+        fs.appendFileSync(
+          path.join(f.library.shared, "update/SKILL.md"),
+          "Changed locally",
+        );
+      if (kind === "policy")
+        await f.connect(
+          stringify({
+            version: 1,
+            skills: ["install", "update"].map((name) => ({
+              source: "owner/repo",
+              path: "skills/" + name,
+              commit: nextCommit,
+            })),
+            blocked: ["other"],
+          }),
+        );
+      if (kind === "missing") fs.rmSync(f.snapshot, { recursive: true });
+      if (kind === "names") preview.changes.pop();
+      if (kind === "hash") preview.changes[0].hash = "stale";
+      const before = f.library.inventory(),
+        history = f.library.history(),
+        origins = f.library.origins();
+      assert.throws(
+        () =>
+          f.policy.apply(
+            preview.changes,
+            kind === "tools" ? ["codex"] : preview.tools,
+          ),
+        stalePreview,
+      );
+      assert.deepEqual(f.library.inventory(), before);
+      assert.deepEqual(f.library.history(), history);
+      assert.deepEqual(f.library.origins(), origins);
+      assert.equal(f.fetches(), 1);
+    });
+});
+
+test("a failing policy step rolls back installed files, updated files and manifest", async (t) => {
+  const f = await applyFixture(t),
+    before = f.library.inventory(),
+    origins = f.library.origins(),
+    history = f.library.history(),
+    preview = await f.policy.preview(["claude"]),
+    rename = fs.renameSync;
+  t.mock.method(
+    fs,
+    "renameSync",
+    (source: fs.PathLike, destination: fs.PathLike) => {
+      if (String(source).includes(".update-"))
+        throw new Error("Injected update failure");
+      return rename(source, destination);
+    },
+  );
+  assert.throws(
+    () => f.policy.apply(preview.changes, preview.tools),
+    /Injected update failure/,
+  );
+  assert.deepEqual(f.library.inventory(), before);
+  assert.deepEqual(f.library.origins(), origins);
+  assert.equal(f.library.history().length, history.length + 1);
+  assert.equal(f.library.history()[0].status, "failed");
+  assert.equal(
+    fs.existsSync(path.join(f.home, ".claude/skills/install")),
+    false,
+  );
+  assert.ok(
+    fs
+      .readdirSync(f.library.shared)
+      .every((name) => !name.startsWith(".update-")),
+  );
+});
+
+test("policy preview skips taken names, missing paths, incompatible skills and non-shared copies", async (t) => {
+  for (const kind of [
+    "local",
+    "other-origin",
+    "occupied-folder",
+    "missing",
+    "incompatible",
+    "non-shared",
+    "symlink",
+  ])
+    await t.test(kind, async (t) => {
+      const f = await applyFixture(t);
+      let expected =
+        "Another skill uses this name. Palimpsest won't replace it.";
+      if (kind === "local")
+        f.library.create("install", "Local skill", "Local", ["claude"]);
+      if (kind === "other-origin") {
+        f.policy.disconnect();
+        f.library.installPackage(
+          "install",
+          path.join(f.packages, "skills/install"),
+          tree(path.join(f.packages, "skills/install")).hash,
+          ["claude"],
+          {
+            source: "other",
+            repo: "other/repo",
+            path: "skills/install",
+            commit,
+          },
+        );
+        await f.connect(
+          stringify({
+            version: 1,
+            skills: ["install", "update"].map((name) => ({
+              source: "owner/repo",
+              path: "skills/" + name,
+              commit: nextCommit,
+            })),
+          }),
+        );
+      }
+      if (kind === "occupied-folder")
+        fs.mkdirSync(path.join(f.home, ".claude/skills/install"));
+      if (kind === "missing") {
+        fs.rmSync(path.join(f.packages, "skills/install/SKILL.md"));
+        expected = `No SKILL.md at skills/install in owner/repo at ${nextCommit.slice(0, 7)}.`;
+      }
+      if (kind === "incompatible") {
+        put(path.join(f.packages, "skills/install"), "different");
+        expected =
+          "OpenCode requires a name matching the folder, with up to 64 lowercase letters, numbers, and single hyphens.";
+      }
+      if (kind === "non-shared") {
+        put(
+          path.join(f.home, ".agents/skills/update"),
+          "update",
+          "Conflicting copy",
+        );
+        expected =
+          "This skill is no longer a single shared copy, so it cannot be updated automatically.";
+      }
+      if (kind === "symlink") {
+        fs.renameSync(
+          path.join(f.packages, "skills/install"),
+          path.join(f.packages, "linked"),
+        );
+        fs.symlinkSync(
+          "../linked",
+          path.join(f.packages, "skills/install"),
+          "dir",
+        );
+        expected = "Packages with symlinks cannot be installed.";
+      }
+      const before = f.library.inventory(),
+        preview = await f.policy.preview(
+          kind === "incompatible" ? ["opencode"] : ["claude"],
+        );
+      assert.deepEqual(preview.skipped, [
+        {
+          name: kind === "non-shared" ? "update" : "install",
+          reason: expected,
+        },
+      ]);
+      assert.deepEqual(f.library.inventory(), before);
+      f.policy.apply(preview.changes, preview.tools);
+      if (kind === "local" || kind === "other-origin")
+        assert.deepEqual(
+          f.library.skill("install"),
+          before.skills.find((skill) => skill.name === "install"),
+        );
+    });
+});
+
+test("failed snapshot fetch is not cached and a retry copies the fixture", async (t) => {
+  const f = await applyFixture(t),
+    policy = new Policy(
+      f.library,
+      undefined,
+      async (_repo, _commit, directory) => {
+        fs.writeFileSync(
+          path.join(directory, "partial"),
+          "Incomplete download",
+        );
+        throw new Error("Injected fetch failure");
+      },
+    );
+  await assert.rejects(policy.preview(["claude"]), /Injected fetch failure/);
+  assert.deepEqual(fs.readdirSync(path.dirname(f.snapshot)), []);
+  await f.policy.preview(["claude"]);
+  assert.equal(f.fetches(), 1);
+  assert.equal(fs.existsSync(path.join(f.snapshot, "partial")), false);
+});
+
+test("CLI policy apply previews, applies, and restores a fixture using an isolated home without git", async (t) => {
+  const f = await applyFixture(t);
+  await f.policy.preview(["claude"]);
+  const cli = (...args: string[]) =>
+    JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "server/cli.ts",
+          ...args,
+          "--home",
+          f.home,
+          "--tools",
+          "claude",
+        ],
+        { encoding: "utf8", env: { ...process.env, PATH: "" } },
+      ),
+    );
+  const before = f.library.inventory(),
+    history = f.library.history(),
+    preview = cli("policy", "apply");
+  assert.deepEqual(
+    preview.changes.map(({ action }: { action: string }) => action),
+    ["install", "update"],
+  );
+  assert.deepEqual(f.library.inventory(), before);
+  assert.deepEqual(f.library.history(), history);
+  const applied = cli("policy", "apply", "--apply");
+  assert.equal(f.library.history().length, history.length + 1);
+  assert.equal(f.library.origins().install.commit, nextCommit);
+  cli("restore", applied.operation.id);
+  assert.deepEqual(f.library.inventory(), before);
+});
+
+test("fetchCommit uses a full SHA and hardened git for every command without network", async (t) => {
+  const f = fixture(t),
+    log = path.join(f.home, "git-calls.jsonl"),
+    directory = path.join(f.home, "snapshot"),
+    overrides = {
+      PATH: f.home,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "core.hooksPath",
+      GIT_CONFIG_VALUE_0: "/untrusted",
+      GIT_DIR: "/untrusted",
+      GIT_ASKPASS: "/untrusted",
+    };
+  fs.mkdirSync(directory);
+  fs.writeFileSync(
+    path.join(f.home, "git"),
+    `#!${process.execPath}
+const fs = require("node:fs");
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args: process.argv.slice(2), env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("GIT_"))) }) + "\\n");
+if (process.argv.includes("rev-parse")) process.stdout.write(${JSON.stringify(nextCommit)});
+`,
+    { mode: 0o700 },
+  );
+  const previous = Object.fromEntries(
+    Object.keys(overrides).map((key) => [key, process.env[key]]),
+  );
+  Object.assign(process.env, overrides);
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  await assert.rejects(
+    fetchCommit("owner/repo", "abc1234", directory),
+    /full 40-character/,
+  );
+  assert.equal(fs.existsSync(log), false);
+  await fetchCommit("owner/repo", nextCommit, directory);
+  const calls = fs
+    .readFileSync(log, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(
+    calls.map(({ args }) => args.slice(6)),
+    [
+      ["init", "--template="],
+      [
+        "fetch",
+        "--depth",
+        "1",
+        "--no-recurse-submodules",
+        "https://github.com/owner/repo.git",
+        nextCommit,
+      ],
+      ["checkout", "--detach", "FETCH_HEAD"],
+      ["rev-parse", "HEAD"],
+    ],
+  );
+  for (const call of calls) {
+    assert.deepEqual(call.args.slice(0, 6), [
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "core.fsmonitor=false",
+      "-C",
+      directory,
+    ]);
+    assert.deepEqual(call.env, {
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_LFS_SKIP_SMUDGE: "1",
+    });
+  }
+  await assert.rejects(
+    fetchCommit("owner/repo", commit, directory),
+    /does not match the policy pin/,
+  );
 });

@@ -56,6 +56,15 @@ export type Origin = {
   installedAt?: string;
   added?: { commit?: string; installedAt?: string };
 };
+export type PolicyStep = {
+  name: string;
+  action: "install" | "update";
+  directory: string;
+  hash: string;
+  tools: Tool[];
+  origin: Omit<Origin, "hash">;
+};
+type PackageStage = { paths: string[]; run: () => void; cleanup?: () => void };
 type Manifest = {
   schema: 1;
   skills: Record<string, { adoptedAt: string; origin?: Origin }>;
@@ -699,6 +708,20 @@ export class SkillLibrary {
     label: string,
     paths: string[],
     run: () => void,
+  ): { operation: Pick<Operation, "id" | "label" | "at">; skill: Skill };
+  private transaction(
+    name: string,
+    label: string,
+    paths: string[],
+    run: () => void,
+    options: { skill: false },
+  ): { operation: Pick<Operation, "id" | "label" | "at"> };
+  private transaction(
+    name: string,
+    label: string,
+    paths: string[],
+    run: () => void,
+    options = { skill: true },
   ) {
     const id =
       new Date().toISOString().replace(/[:.]/g, "-") +
@@ -735,7 +758,7 @@ export class SkillLibrary {
       this.json(path.join(dir, "operation.json"), record);
       return {
         operation: { id, label, at: record.at },
-        skill: this.skill(name),
+        ...(options.skill ? { skill: this.skill(name) } : {}),
       };
     } catch (error) {
       this.restoreSnapshots(record);
@@ -973,60 +996,72 @@ export class SkillLibrary {
     origin?: Omit<Origin, "hash">,
   ) {
     return this.lock(() => {
-      this.checkPolicy(name, origin ?? {});
-      if (!namePattern.test(name) || name === "synced")
-        throw new LibraryError("Invalid skill folder name.");
-      this.validateTools(tools);
-      const packageTree = tree(directory);
-      if (packageTree.hash !== hash)
-        throw new LibraryError("The package changed. Preview it again.", 409);
-      if (packageTree.links.length)
-        throw new LibraryError("Packages with symlinks cannot be installed.");
-      const info = metadata(
-        fs.readFileSync(path.join(directory, "SKILL.md"), "utf8"),
-      );
-      if (!info.description)
-        throw new LibraryError("The package needs valid skill metadata.");
-      this.validateCompatibility(name, info.title, tools);
-      if (this.inventory().skills.some((s) => s.name === name))
-        throw new LibraryError(
-          "This skill already exists. Existing files were preserved.",
-          409,
-        );
-      const canonical = path.join(this.shared, name);
-      const targets = tools.map((tool) =>
-        path.join(this.rootFor(tool).path, name),
-      );
-      if ([canonical, ...targets].some((p) => present(p)))
-        throw new LibraryError("An existing directory uses this name.", 409);
+      const stage = this.stageInstall(name, directory, hash, tools, origin);
       return this.transaction(
         name,
         "Install marketplace skill",
-        [canonical, ...targets],
-        () => {
-          fs.mkdirSync(path.dirname(canonical), { recursive: true });
-          fs.cpSync(directory, canonical, {
-            recursive: true,
-            filter: (p) =>
-              !ignored.has(path.basename(p)) && !p.endsWith(".pyc"),
-          });
-          for (const target of targets) {
-            fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.symlinkSync(canonical, target, "dir");
-          }
-          const manifest = this.manifest();
-          manifest.skills[name] = {
-            adoptedAt: new Date().toISOString(),
-            origin: origin && {
-              ...origin,
-              hash,
-              installedAt: new Date().toISOString(),
-            },
-          };
-          this.json(path.join(this.state, "manifest.json"), manifest);
-        },
+        stage.paths,
+        stage.run,
       );
     });
+  }
+  private stageInstall(
+    name: string,
+    directory: string,
+    hash: string,
+    tools: Tool[],
+    origin?: Omit<Origin, "hash">,
+  ): PackageStage {
+    this.checkPolicy(name, origin ?? {});
+    if (!namePattern.test(name) || name === "synced")
+      throw new LibraryError("Invalid skill folder name.");
+    this.validateTools(tools);
+    const packageTree = tree(directory);
+    if (packageTree.hash !== hash)
+      throw new LibraryError("The package changed. Preview it again.", 409);
+    if (packageTree.links.length)
+      throw new LibraryError("Packages with symlinks cannot be installed.");
+    const info = metadata(
+      fs.readFileSync(path.join(directory, "SKILL.md"), "utf8"),
+    );
+    if (!info.description)
+      throw new LibraryError("The package needs valid skill metadata.");
+    this.validateCompatibility(name, info.title, tools);
+    if (this.inventory().skills.some((s) => s.name === name))
+      throw new LibraryError(
+        "This skill already exists. Existing files were preserved.",
+        409,
+      );
+    const canonical = path.join(this.shared, name);
+    const targets = tools.map((tool) =>
+      path.join(this.rootFor(tool).path, name),
+    );
+    if ([canonical, ...targets].some((p) => present(p)))
+      throw new LibraryError("An existing directory uses this name.", 409);
+    return {
+      paths: [canonical, ...targets],
+      run: () => {
+        fs.mkdirSync(path.dirname(canonical), { recursive: true });
+        fs.cpSync(directory, canonical, {
+          recursive: true,
+          filter: (p) => !ignored.has(path.basename(p)) && !p.endsWith(".pyc"),
+        });
+        for (const target of targets) {
+          fs.mkdirSync(path.dirname(target), { recursive: true });
+          fs.symlinkSync(canonical, target, "dir");
+        }
+        const manifest = this.manifest();
+        manifest.skills[name] = {
+          adoptedAt: new Date().toISOString(),
+          origin: origin && {
+            ...origin,
+            hash,
+            installedAt: new Date().toISOString(),
+          },
+        };
+        this.json(path.join(this.state, "manifest.json"), manifest);
+      },
+    };
   }
   updatePackage(
     name: string,
@@ -1035,62 +1070,110 @@ export class SkillLibrary {
     origin: Pick<Origin, "repo" | "commit"> = {},
   ) {
     return this.lock(() => {
-      const entry = this.manifest().skills[name];
-      if (!entry?.origin)
-        throw new LibraryError("This skill was not added from a collection.");
-      this.checkPolicy(name, { ...entry.origin, ...origin });
-      const skill = this.skill(name),
-        canonical = path.join(this.shared, name);
-      if (
-        skill.status !== "shared" ||
-        !present(canonical) ||
-        fs.lstatSync(canonical).isSymbolicLink()
-      )
-        throw new LibraryError(
-          "This skill is no longer a single shared copy, so it cannot be updated automatically.",
-          409,
-        );
-      const packageTree = tree(directory);
-      if (packageTree.hash !== hash)
-        throw new LibraryError("The update changed. Review it again.", 409);
-      if (packageTree.links.length)
-        throw new LibraryError("Packages with symlinks cannot be installed.");
-      const info = metadata(
-        fs.readFileSync(path.join(directory, "SKILL.md"), "utf8"),
-      );
-      if (!info.description)
-        throw new LibraryError("The package needs valid skill metadata.");
-      this.validateCompatibility(name, info.title, skill.tools);
-      const staging = path.join(this.shared, ".update-" + randomUUID());
+      const stage = this.stageUpdate(name, directory, hash, origin);
       try {
         return this.transaction(
           name,
           "Update marketplace skill",
-          [canonical],
-          () => {
-            fs.cpSync(directory, staging, {
-              recursive: true,
-              filter: (p) =>
-                !ignored.has(path.basename(p)) && !p.endsWith(".pyc"),
-            });
-            fs.rmSync(canonical, { recursive: true });
-            fs.renameSync(staging, canonical);
-            const manifest = this.manifest();
-            manifest.skills[name].origin = {
-              ...entry.origin!,
-              ...origin,
-              hash,
-              installedAt: new Date().toISOString(),
-              added: entry.origin!.added ?? {
-                commit: entry.origin!.commit,
-                installedAt: entry.origin!.installedAt,
-              },
-            };
-            this.json(path.join(this.state, "manifest.json"), manifest);
-          },
+          stage.paths,
+          stage.run,
         );
       } finally {
-        fs.rmSync(staging, { recursive: true, force: true });
+        stage.cleanup?.();
+      }
+    });
+  }
+  private stageUpdate(
+    name: string,
+    directory: string,
+    hash: string,
+    origin: Pick<Origin, "repo" | "commit">,
+  ): PackageStage {
+    const entry = this.manifest().skills[name];
+    if (!entry?.origin)
+      throw new LibraryError("This skill was not added from a collection.");
+    this.checkPolicy(name, { ...entry.origin, ...origin });
+    const skill = this.skill(name),
+      canonical = path.join(this.shared, name);
+    if (
+      skill.status !== "shared" ||
+      !present(canonical) ||
+      fs.lstatSync(canonical).isSymbolicLink()
+    )
+      throw new LibraryError(
+        "This skill is no longer a single shared copy, so it cannot be updated automatically.",
+        409,
+      );
+    const packageTree = tree(directory);
+    if (packageTree.hash !== hash)
+      throw new LibraryError("The update changed. Review it again.", 409);
+    if (packageTree.links.length)
+      throw new LibraryError("Packages with symlinks cannot be installed.");
+    const info = metadata(
+      fs.readFileSync(path.join(directory, "SKILL.md"), "utf8"),
+    );
+    if (!info.description)
+      throw new LibraryError("The package needs valid skill metadata.");
+    this.validateCompatibility(name, info.title, skill.tools);
+    const staging = path.join(this.shared, ".update-" + randomUUID());
+    return {
+      paths: [canonical],
+      run: () => {
+        fs.cpSync(directory, staging, {
+          recursive: true,
+          filter: (p) => !ignored.has(path.basename(p)) && !p.endsWith(".pyc"),
+        });
+        fs.rmSync(canonical, { recursive: true });
+        fs.renameSync(staging, canonical);
+        const manifest = this.manifest();
+        manifest.skills[name].origin = {
+          ...entry.origin!,
+          ...origin,
+          hash,
+          installedAt: new Date().toISOString(),
+          added: entry.origin!.added ?? {
+            commit: entry.origin!.commit,
+            installedAt: entry.origin!.installedAt,
+          },
+        };
+        this.json(path.join(this.state, "manifest.json"), manifest);
+      },
+      cleanup: () => fs.rmSync(staging, { recursive: true, force: true }),
+    };
+  }
+  stagePolicy(step: PolicyStep): PackageStage {
+    const { name, directory, hash, tools, origin } = step;
+    if (step.action === "install")
+      return this.stageInstall(name, directory, hash, tools, origin);
+    const previous = this.origins()[name];
+    if (
+      previous?.repo?.toLowerCase() !== origin.repo?.toLowerCase() ||
+      previous?.path !== origin.path
+    )
+      throw new LibraryError(
+        "Another skill uses this name. Palimpsest won't replace it.",
+        409,
+      );
+    return this.stageUpdate(name, directory, hash, origin);
+  }
+  applyPolicy(steps: () => PolicyStep[]): {
+    operation?: Pick<Operation, "id" | "label" | "at">;
+  } {
+    return this.lock(() => {
+      const stages = steps().map((step) => this.stagePolicy(step));
+      if (!stages.length) return {};
+      try {
+        return this.transaction(
+          "Skill policy",
+          "Apply skill policy",
+          stages.flatMap((stage) => stage.paths),
+          () => {
+            for (const stage of stages) stage.run();
+          },
+          { skill: false },
+        );
+      } finally {
+        for (const stage of stages) stage.cleanup?.();
       }
     });
   }

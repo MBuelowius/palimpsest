@@ -98,6 +98,48 @@ export async function cloneRepository(repo: string, directory: string) {
   });
   return stdout.trim();
 }
+export async function fetchCommit(
+  repo: string,
+  commit: string,
+  directory: string,
+) {
+  repo = githubRepository(repo);
+  if (!/^[0-9a-f]{40}$/.test(commit))
+    throw new LibraryError(
+      "Provide a full 40-character lowercase commit hash.",
+    );
+  const options = { env: gitEnv(), timeout: 60000, maxBuffer: 1024 * 1024 };
+  const flags = [
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "core.fsmonitor=false",
+    "-C",
+    directory,
+  ];
+  await run("git", [...flags, "init", "--template="], options);
+  await run(
+    "git",
+    [
+      ...flags,
+      "fetch",
+      "--depth",
+      "1",
+      "--no-recurse-submodules",
+      "https://github.com/" + repo + ".git",
+      commit,
+    ],
+    options,
+  );
+  await run("git", [...flags, "checkout", "--detach", "FETCH_HEAD"], options);
+  const { stdout } = await run("git", [...flags, "rev-parse", "HEAD"], options);
+  if (stdout.trim() !== commit)
+    throw new LibraryError(
+      "The downloaded commit does not match the policy pin.",
+      409,
+    );
+}
+
 // One `git log` pass at download time: the latest commit date for every
 // folder in the snapshot's history.
 async function history(directory: string): Promise<Changes> {
