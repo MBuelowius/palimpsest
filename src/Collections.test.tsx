@@ -27,6 +27,10 @@ function renderDom() {
     url: "http://localhost",
     pretendToBeVisual: true,
   });
+  Object.assign(dom.window, {
+    scrollTo: () => {},
+    palimpsestAppearance: { get: () => "system", set: () => {} },
+  });
   const globals = {
     window: dom.window,
     document: dom.window.document,
@@ -97,6 +101,7 @@ const settingsProps = {
   onReviewSetup: () => {},
   onBackups: () => {},
   onChanged: async () => {},
+  onNotice: () => {},
 };
 
 test("Settings shares the collection controls and removal updates App's sources", async (t) => {
@@ -123,7 +128,7 @@ test("Settings shares the collection controls and removal updates App's sources"
       [...document.querySelectorAll(".settings-section > h2")].map(
         (heading) => heading.textContent,
       ),
-      ["Your apps", "Marketplace", "Keep your skills consistent"],
+      ["Appearance", "Your apps", "Marketplace", "Keep your skills consistent"],
     );
     await act(async () =>
       [
@@ -256,6 +261,73 @@ test("a settings load failure keeps the marketplace unrendered and survives a la
     );
     assert.equal(document.querySelector('[aria-label="Skill catalog"]'), null);
     assert.equal(hostedCalls, 0);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("Settings collection add and refresh each scan inventory once and report notices", async (t) => {
+  const { root, cleanup } = renderDom();
+  const { App } = await import("./App");
+  const addedSource = {
+    ...source,
+    repo: "anthropics/skills",
+    url: "https://github.com/anthropics/skills",
+  };
+  let sources: Marketplace[] = [];
+  let scans = 0;
+  t.mock.method(api, "inventory", async () => {
+    scans++;
+    return inventory;
+  });
+  t.mock.method(api, "history", async () => []);
+  t.mock.method(api, "updates", async () => []);
+  t.mock.method(api, "marketplaces", async () => sources);
+  t.mock.method(api, "settings", async () => ({ skillsMd: false }));
+  t.mock.method(api, "catalogue", async () => []);
+  t.mock.method(api, "addMarketplace", async (repo: string) => {
+    assert.equal(repo, "anthropics/skills");
+    sources = [addedSource];
+    return addedSource;
+  });
+  t.mock.method(api, "refreshMarketplace", async (id: string) => {
+    assert.equal(id, addedSource.id);
+    return addedSource;
+  });
+  try {
+    await act(async () => root.render(<App />));
+    assert.equal(scans, 1);
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>("nav button")]
+        .find((button) => button.textContent === "Settings")!
+        .click(),
+    );
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Add anthropics/skills"]',
+        )!
+        .click(),
+    );
+    assert.equal(scans, 2, "adding a collection scans inventory once");
+    assert.match(
+      document.querySelector(".message.success")!.textContent!,
+      /1 collection ready to browse/,
+    );
+    await act(async () =>
+      [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          '[aria-label="Added collections"] button',
+        ),
+      ]
+        .find((button) => button.textContent === "Refresh")!
+        .click(),
+    );
+    assert.equal(scans, 3, "refreshing a collection scans inventory once");
+    assert.match(
+      document.querySelector(".message.success")!.textContent!,
+      /This collection is up to date/,
+    );
   } finally {
     await cleanup();
   }

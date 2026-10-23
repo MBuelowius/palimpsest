@@ -30,6 +30,7 @@ export function SettingsPage({
   onReviewSetup,
   onBackups,
   onChanged,
+  onNotice,
 }: {
   inventory: InventoryView;
   sources: Marketplace[];
@@ -41,6 +42,7 @@ export function SettingsPage({
   onReviewSetup: () => void;
   onBackups: () => void;
   onChanged: (message: string) => Promise<void>;
+  onNotice: (message: string) => void;
 }) {
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsError, setSettingsError] = useState("");
@@ -251,7 +253,7 @@ export function SettingsPage({
         <Collections
           sources={sources}
           onSourcesChange={onSourcesChange}
-          onMessage={(message) => void onChanged(message)}
+          onMessage={onNotice}
         />
       </section>
       <section className="settings-section" aria-labelledby="maintenance-title">

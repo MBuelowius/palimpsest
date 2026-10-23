@@ -604,6 +604,7 @@ export function App() {
             skillsMd={settings.skillsMd}
             onSkillsMdChange={(skillsMd) => setSettings({ skillsMd })}
             onChanged={changed}
+            onNotice={setNotice}
             onBrowse={(tool) => {
               setToolFilter(tool);
               setAttentionOnly(false);
