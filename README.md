@@ -1,8 +1,20 @@
 # Palimpsest
 
-Palimpsest is a skill marketplace for discovering skills across skills.md and public GitHub collections. Search the combined catalog, browse categories, and read instructions before choosing a skill. My skills holds your personal library for Claude, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot, and Windsurf / Devin.
+Palimpsest is one local skill library for people who use Claude Code, Codex, Cursor, Gemini CLI, OpenCode, GitHub Copilot, or Windsurf / Devin. Preview skills from public collections and skills.md, with scripts and hidden characters flagged for review before you add anything. Optionally follow a skill policy kept in a Git repository: allowed collections, pinned versions, and blocked skills, applied as one change you can undo.
 
-This is an early project. Review previews before applying changes and keep an independent backup of your skills.
+This is an early project: review previews before applying changes and keep an independent backup of your skills.
+
+![Marketplace Discover view with collection skills marked Includes scripts](docs/screenshots/marketplace.png)
+
+Discover skills from public collections, with script indicators on package cards.
+
+![Package preview showing Static check findings, license, last changed date, and contents](docs/screenshots/preview.png)
+
+Read the static check findings and package facts before choosing where to add a skill.
+
+![Settings with Appearance controls and Marketplace collections](docs/screenshots/settings.png)
+
+Choose an appearance and manage the skills.md catalog and marketplace collections.
 
 ## What it does
 
