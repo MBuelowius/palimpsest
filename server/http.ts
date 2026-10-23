@@ -9,8 +9,13 @@ import { Marketplaces } from "./marketplaces.ts";
 import { SkillsMd } from "./skillsMd.ts";
 import { SkillInstalls } from "./installs.ts";
 import { installedAgents, runReview } from "./review.ts";
+import { Policy } from "./policy.ts";
 
-export function createServer(library: SkillLibrary, webDir: string) {
+export function createServer(
+  library: SkillLibrary,
+  webDir: string,
+  policy = new Policy(library),
+) {
   const marketplaces = new Marketplaces(library);
   const skillsMd = new SkillsMd();
   const installs = new SkillInstalls();
@@ -65,6 +70,15 @@ export function createServer(library: SkillLibrary, webDir: string) {
         }
         if (url.pathname === "/api/settings" && req.method === "GET")
           return send(res, 200, library.settings());
+        if (url.pathname === "/api/policy" && req.method === "GET")
+          return send(res, 200, policy.show());
+        if (
+          req.method === "GET" &&
+          (url.pathname === "/api/skills-md" ||
+            /^\/api\/skills-md\/[a-zA-Z0-9_-]+$/.test(url.pathname)) &&
+          library.policy()?.policy.sources.skillsMd === false
+        )
+          throw new LibraryError("Your skill policy turns off skills.md.", 409);
         if (url.pathname === "/api/skills-md" && req.method === "GET") {
           if (!library.settings().skillsMd)
             throw new LibraryError("skills.md is turned off in Settings.", 409);
@@ -137,6 +151,38 @@ export function createServer(library: SkillLibrary, webDir: string) {
             throw new LibraryError("Missing field: " + key);
           return body[key] as string;
         };
+        if (url.pathname === "/api/policy") {
+          if (req.method === "POST")
+            return send(
+              res,
+              200,
+              await policy.connect(
+                body.repo === undefined ? undefined : string("repo"),
+              ),
+            );
+          if (req.method === "DELETE")
+            return send(res, 200, policy.disconnect());
+        }
+        if (url.pathname === "/api/policy/plan" && req.method === "POST")
+          return send(res, 200, await policy.preview(body.tools as Tool[]));
+        if (url.pathname === "/api/policy/apply" && req.method === "POST") {
+          const changes = body.changes;
+          if (
+            !Array.isArray(changes) ||
+            changes.some(
+              (change) =>
+                typeof change?.name !== "string" ||
+                typeof change?.hash !== "string",
+            ) ||
+            !Array.isArray(body.tools) ||
+            body.tools.some((tool) => typeof tool !== "string")
+          )
+            throw new LibraryError(
+              "Choose changes from the policy preview.",
+              409,
+            );
+          return send(res, 200, policy.apply(changes, body.tools as Tool[]));
+        }
         if (url.pathname === "/api/settings" && req.method === "PUT") {
           if (typeof body.skillsMd !== "boolean")
             throw new LibraryError("Missing skillsMd setting.");
