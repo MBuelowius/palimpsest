@@ -701,3 +701,79 @@ test("a repository browsable before nested package counts stays browsable", asyn
     fs.rmSync(home, { recursive: true });
   }
 });
+
+test("package counts include .system folders and files below the search depth", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "marketplace-test-"));
+  const marketplaces = new Marketplaces(
+    new SkillLibrary(home),
+    async (_repo, directory) => {
+      write(directory, {
+        "skills/pkg/SKILL.md": skill(),
+        "skills/pkg/.system/run.sh": "#!/bin/sh",
+        "skills/pkg/1/2/3/4/5/6/7/8/9/deep.py": "print()",
+        "skills/pkg/node_modules/ignored.js": "",
+        // Outside a package, .system is still not searched for packages.
+        ".system/hidden/SKILL.md": skill(),
+      });
+      return "commit";
+    },
+  );
+  try {
+    const source = await marketplaces.add("test/deep");
+    const listing = marketplaces.catalogue(source.id);
+    assert.deepEqual(
+      listing.map(({ path: folder, scripts }) => [folder, scripts]),
+      [["skills/pkg", 2]],
+    );
+    const preview = marketplaces.preview(source.id, listing[0].id);
+    assert.equal(
+      preview.scan.findings.filter((f) => f.kind === "script").length,
+      2,
+    );
+  } finally {
+    fs.rmSync(home, { recursive: true });
+  }
+});
+
+test("a failed source registration keeps the previous catalogue cache", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "marketplace-test-"));
+  let commit = "first",
+    fail = false;
+  const marketplaces = new Marketplaces(
+    new SkillLibrary(home),
+    async (_repo, directory) => {
+      write(directory, { "skills/pkg/SKILL.md": skill() });
+      return commit;
+    },
+  );
+  const internal = marketplaces as unknown as {
+    write: (name: string, data: unknown) => void;
+  };
+  const original = internal.write.bind(marketplaces);
+  internal.write = (name, data) => {
+    if (fail && name === "sources.json") throw new Error("Disk full");
+    original(name, data);
+  };
+  const cache = (id: string) =>
+    path.join(marketplaces.root, id + ".catalogue.json");
+  try {
+    const source = await marketplaces.add("test/cached");
+    commit = "second";
+    fail = true;
+    await assert.rejects(marketplaces.refresh(source.id), /Disk full/);
+    assert.equal(marketplaces.list()[0].commit, "first");
+    assert.equal(
+      JSON.parse(fs.readFileSync(cache(source.id), "utf8")).commit,
+      "first",
+    );
+    await assert.rejects(marketplaces.add("test/new"), /Disk full/);
+    assert.equal(
+      fs
+        .readdirSync(marketplaces.root)
+        .filter((name) => name.endsWith(".catalogue.json")).length,
+      1,
+    );
+  } finally {
+    fs.rmSync(home, { recursive: true });
+  }
+});

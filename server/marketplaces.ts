@@ -8,6 +8,7 @@ import { parseDocument } from "yaml";
 import { scanPackage, scriptExtension } from "./scan.ts";
 import {
   LibraryError,
+  ignored,
   SkillLibrary,
   metadata,
   tree,
@@ -43,13 +44,6 @@ type Changes = Map<string, { date: string; before: boolean }>;
 const run = promisify(execFile);
 const CATALOGUE_VERSION = 1;
 const licenseName = /^(licen[cs]e|copying)(\.[a-z0-9]+)?$/i;
-const skipped = new Set([
-  ".git",
-  "node_modules",
-  ".venv",
-  "__pycache__",
-  ".DS_Store",
-]);
 export function githubRepository(input: string) {
   const value = input
     .trim()
@@ -176,29 +170,40 @@ function scan(root: string, changes: Changes = new Map()) {
   const skills: CatalogueSkill[] = [],
     rootLicense = licenseFile(root, "");
   let files = 0;
-  // One bounded walk finds packages and counts each package's files.
-  function visit(directory: string, depth: number) {
+  // One bounded walk finds packages (up to depth 10, skipping .system) and
+  // counts each package's files by the same rules as tree(), at any depth.
+  function visit(
+    directory: string,
+    depth: number,
+    inPackage = false,
+    discover = true,
+  ) {
     const counts = { scripts: 0, otherFiles: 0 };
-    if (depth > 10) return counts;
+    discover &&= depth <= 10;
+    if (!discover && !inPackage) return counts;
+    const nested =
+      inPackage ||
+      (discover && fs.existsSync(path.join(directory, "SKILL.md")));
     let skill: string | undefined;
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       if (++files > 30000)
         throw new LibraryError("This repository is too large to browse.");
-      if (
-        entry.name === ".git" ||
-        entry.name === "node_modules" ||
-        entry.name === ".system"
-      )
-        continue;
+      if (entry.name === ".git" || entry.name === "node_modules") continue;
       const location = path.join(directory, entry.name),
-        counted = !skipped.has(entry.name) && !entry.name.endsWith(".pyc");
+        counted = !ignored.has(entry.name) && !entry.name.endsWith(".pyc");
       if (entry.isDirectory()) {
-        const inner = visit(location, depth + 1);
+        if (!discover && !counted) continue;
+        const inner = visit(
+          location,
+          depth + 1,
+          nested && counted,
+          discover && entry.name !== ".system",
+        );
         if (counted) {
           counts.scripts += inner.scripts;
           counts.otherFiles += inner.otherFiles;
         }
-      } else if (entry.isFile() && counted) {
+      } else if (entry.isFile() && counted && nested) {
         if (
           scriptExtension.test(entry.name) ||
           fs.statSync(location).mode & 0o111
@@ -208,6 +213,7 @@ function scan(root: string, changes: Changes = new Map()) {
           counts.otherFiles++;
       }
       if (
+        discover &&
         entry.isFile() &&
         entry.name === "SKILL.md" &&
         fs.statSync(location).size <= 1024 * 1024
@@ -307,15 +313,12 @@ export class Marketplaces {
       const archive = path.join(this.root, id + "-archive-" + randomUUID());
       const hadSnapshot = fs.existsSync(target);
       if (hadSnapshot) fs.renameSync(target, archive);
+      let skills: CatalogueSkill[];
       try {
         fs.renameSync(directory, target);
         // Scan in place so a package at the repository root is named after
         // the snapshot, not the temporary clone directory.
-        this.write(id + ".catalogue.json", {
-          version: CATALOGUE_VERSION,
-          commit,
-          skills: scan(target, changes),
-        });
+        skills = scan(target, changes);
         this.write(
           "sources.json",
           duplicate
@@ -328,6 +331,14 @@ export class Marketplaces {
         throw error;
       }
       if (hadSnapshot) fs.rmSync(archive, { recursive: true });
+      // Written only once the source is registered, so a failed registration
+      // keeps the previous cache. A crash in between leaves a commit
+      // mismatch, which catalogue() answers by scanning.
+      this.write(id + ".catalogue.json", {
+        version: CATALOGUE_VERSION,
+        commit,
+        skills,
+      });
       return source;
     } catch (error) {
       if (error instanceof LibraryError) throw error;
