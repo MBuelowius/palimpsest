@@ -13,6 +13,9 @@ This is an early project. Review previews before applying changes and keep an in
 - Shares packages through `~/.harnesses-shared/skills` and tool-specific symlinks.
 - Edits skill files with operation backups and checks for changes made elsewhere.
 - Browses public GitHub skill repositories and previews packages before installation.
+- Flags scripts, binary files, hidden characters, download-and-run commands and credential paths in package and update previews. Findings point at what to read; they are not a safety verdict.
+- Shows the repository, license, last change and contents of collection skills, suggests well-known collections, and records which repository and commit each added skill came from.
+- Settings covers appearance (Light, Dark or System), marketplace collections and the skills.md catalog, and a shared skill policy (see [Skill policy](#skill-policy)).
 
 Palimpsest does not execute skill scripts. A tool consuming an installed skill may execute them; inspect third-party instructions and files before enabling a package.
 
@@ -116,7 +119,7 @@ blocked:
 
 Policy checks refuse disallowed collection downloads, blocked installs and updates, and installs or updates that differ from a pin's repository, path or commit. Blocked skills cannot be shared, synced or enabled in another app. Existing skills are never deleted or turned off automatically; `show` reports missing skills, versions that differ from pins, occupied names, blocked skills and disallowed sources. Local skill creation remains available.
 
-Settings controls, HTTP policy routes and the policy override for skills.md are coming in the next part. The `skillsMd` value is stored now; its override is not enforced yet.
+Settings shows the connected policy and where this computer differs from it, and previews required skills before applying them. `palimpsest policy apply` does the same from the command line. When the policy sets `sources.skillsMd: false`, the skills.md catalog stays off whatever the Marketplace switch says.
 
 Unknown settings are ignored and listed as warnings. Within `version: 1`, new keys may only add information. A key that restricts what the client may do must raise `version`, because older clients ignore unknown keys. Versions newer than this client supports are rejected.
 
