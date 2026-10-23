@@ -1,9 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { isAlias, parseDocument, visit } from "yaml";
-import { LibraryError, namePattern, SkillLibrary } from "./library.ts";
+import {
+  LibraryError,
+  namePattern,
+  SkillLibrary,
+  tree,
+  type PolicyStep,
+  type Tool,
+} from "./library.ts";
+import { scanPackage } from "./scan.ts";
 import {
   cloneRepository,
+  fetchCommit,
+  sourceId,
   githubRepository,
   Marketplaces,
 } from "./marketplaces.ts";
@@ -27,6 +38,20 @@ export type PolicyDrift = {
   repo?: string;
   reason: string;
 };
+
+type PolicyChange = {
+  name: string;
+  action: "install" | "update";
+  repo: string;
+  path: string;
+  commit: string;
+  hash: string;
+  edited: boolean;
+  scan: ReturnType<typeof scanPackage>;
+};
+const changed = () =>
+  new LibraryError("The policy or your skills changed. Preview again.", 409);
+const nameTaken = "Another skill uses this name. Palimpsest won't replace it.";
 
 function invalid(problem: string): never {
   throw new LibraryError(
@@ -156,6 +181,7 @@ export class Policy {
   constructor(
     readonly library: SkillLibrary,
     private readonly clone = cloneRepository,
+    private readonly fetch = fetchCommit,
   ) {}
 
   async connect(input?: string) {
@@ -219,6 +245,181 @@ export class Policy {
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
+  }
+
+  private snapshot(pin: SkillPolicy["skills"][number]) {
+    return path.join(
+      this.library.state,
+      "policy",
+      "snapshots",
+      sourceId(pin.source) + "-" + pin.commit,
+    );
+  }
+
+  async preview(tools: Tool[] = this.library.detectedTools()) {
+    const stored = this.library.policy();
+    if (!stored) throw new LibraryError("Connect a skill policy first.");
+    for (const pin of stored.policy.skills) {
+      const snapshot = this.snapshot(pin);
+      if (fs.existsSync(snapshot)) continue;
+      fs.mkdirSync(path.dirname(snapshot), { recursive: true, mode: 0o700 });
+      const directory = fs.mkdtempSync(
+        path.join(path.dirname(snapshot), "fetch-"),
+      );
+      try {
+        await this.fetch(pin.source, pin.commit, directory);
+        this.library.lock(() => {
+          if (JSON.stringify(this.library.policy()) !== JSON.stringify(stored))
+            throw changed();
+          if (!fs.existsSync(snapshot)) fs.renameSync(directory, snapshot);
+        });
+      } catch (error) {
+        if (error instanceof LibraryError) throw error;
+        throw new LibraryError(
+          "Could not download this public GitHub repository: " +
+            (error as Error).message.split("\n")[0],
+        );
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    }
+    if (JSON.stringify(this.library.policy()) !== JSON.stringify(stored))
+      throw changed();
+    return this.plan(tools).preview;
+  }
+
+  private plan(tools: Tool[]) {
+    const stored = this.library.policy();
+    if (!stored) throw changed();
+    const skills = this.library.inventory().skills,
+      origins = this.library.origins(),
+      changes: PolicyChange[] = [],
+      skipped: { name: string; reason: string }[] = [],
+      steps: PolicyStep[] = [];
+    for (const pin of stored.policy.skills) {
+      const snapshot = this.snapshot(pin);
+      if (!fs.existsSync(snapshot)) throw changed();
+      try {
+        const directory = path.join(snapshot, pin.path);
+        for (const relative of [
+          "",
+          ...pin.path
+            .split("/")
+            .map((_, index, parts) => parts.slice(0, index + 1).join("/")),
+          pin.path + "/SKILL.md",
+        ]) {
+          const file = path.join(snapshot, relative),
+            stat = fs.lstatSync(file, { throwIfNoEntry: false });
+          if (stat?.isSymbolicLink())
+            throw new LibraryError(
+              "Packages with symlinks cannot be installed.",
+            );
+          if (
+            !stat ||
+            (relative === pin.path + "/SKILL.md"
+              ? !stat.isFile()
+              : !stat.isDirectory())
+          )
+            throw new LibraryError(
+              `No SKILL.md at ${pin.path} in ${pin.source} at ${pin.commit.slice(0, 7)}.`,
+            );
+        }
+        const skill = skills.find((skill) => skill.name === pin.name),
+          origin = origins[pin.name];
+        if (
+          skill &&
+          (origin?.repo?.toLowerCase() !== pin.source.toLowerCase() ||
+            origin.path !== pin.path)
+        )
+          throw new LibraryError(nameTaken);
+        const shared = skill?.variants.find(
+            (variant) => variant.tool === "shared",
+          ),
+          edited = !!skill && shared?.hash !== origin?.hash;
+        if (
+          skill &&
+          skill.status === "shared" &&
+          origin.commit === pin.commit &&
+          !edited
+        )
+          continue;
+        const packageTree = tree(directory),
+          step: PolicyStep = {
+            name: pin.name,
+            action: skill ? "update" : "install",
+            directory,
+            hash: packageTree.hash,
+            tools,
+            origin: {
+              source: sourceId(pin.source),
+              repo: pin.source,
+              path: pin.path,
+              commit: pin.commit,
+            },
+          },
+          staged = this.library.stagePolicy(step);
+        changes.push({
+          name: pin.name,
+          action: step.action,
+          repo: pin.source,
+          path: pin.path,
+          commit: pin.commit,
+          hash: createHash("sha256")
+            .update(
+              JSON.stringify([
+                stored.repo,
+                stored.commit,
+                stored.policy,
+                tools,
+                pin,
+                packageTree.hash,
+                skill?.revision,
+                origin,
+                staged.paths,
+              ]),
+            )
+            .digest("hex"),
+          edited,
+          scan: scanPackage(directory, packageTree.files),
+        });
+        steps.push(step);
+      } catch (error) {
+        if (!(error instanceof LibraryError)) throw error;
+        skipped.push({
+          name: pin.name,
+          reason: [
+            "An existing directory uses this name.",
+            "This skill already exists. Existing files were preserved.",
+          ].includes(error.message)
+            ? nameTaken
+            : error.message,
+        });
+      }
+    }
+    return {
+      preview: {
+        repo: stored.repo,
+        commit: stored.commit,
+        tools,
+        changes,
+        skipped,
+      },
+      steps,
+    };
+  }
+
+  apply(changes: { name: string; hash: string }[], tools: Tool[]) {
+    return this.library.applyPolicy(() => {
+      const plan = this.plan(tools);
+      if (
+        JSON.stringify(changes.map(({ name, hash }) => ({ name, hash }))) !==
+        JSON.stringify(
+          plan.preview.changes.map(({ name, hash }) => ({ name, hash })),
+        )
+      )
+        throw changed();
+      return plan.steps;
+    });
   }
 
   show() {

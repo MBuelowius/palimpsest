@@ -46,6 +46,7 @@ palimpsest marketplace install <id> <skill-id> [--apply]
 palimpsest marketplace remove <id>    Unregister a source
 palimpsest policy connect [<repo>]    Connect or refresh a public policy repository
 palimpsest policy show                Show policy, warnings and local differences
+palimpsest policy apply [--apply]      Preview required installs; add --apply to commit
 palimpsest policy disconnect          Stop following the policy; skills stay installed
 palimpsest history                     List backups and operations
 palimpsest restore <operation-id>      Restore the latest operation
@@ -100,7 +101,15 @@ async function main() {
       );
     if (action === "show") return print(policy.show());
     if (action === "disconnect") return print(policy.disconnect());
-    throw new Error("Choose policy connect, show or disconnect.");
+    if (action === "apply") {
+      const preview = await policy.preview(tools);
+      return print(
+        args.includes("--apply")
+          ? policy.apply(preview.changes, preview.tools)
+          : preview,
+      );
+    }
+    throw new Error("Choose policy connect, show, apply or disconnect.");
   }
   if (command === "marketplace") {
     const marketplaces = new Marketplaces(library),
