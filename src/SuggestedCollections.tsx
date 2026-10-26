@@ -29,7 +29,7 @@ export function SuggestedCollections({
           <Button
             variant="outline"
             size="sm"
-            disabled={busy || !!adding}
+            disabled={busy}
             aria-label={`Add ${repo}`}
             onClick={() => onAdd(repo)}
           >

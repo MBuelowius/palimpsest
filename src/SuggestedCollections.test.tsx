@@ -24,7 +24,7 @@ test("the collection being added shows Adding… and disables both buttons", () 
   const html = renderToStaticMarkup(
     <SuggestedCollections
       sources={[]}
-      busy={false}
+      busy={true}
       adding="anthropics/skills"
       onAdd={() => {}}
     />,
