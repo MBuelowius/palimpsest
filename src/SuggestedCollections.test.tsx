@@ -19,3 +19,20 @@ test("suggestions hide added collections regardless of repository casing", () =>
   assert.match(remaining, /Add openai\/skills/);
   assert.equal(render(["anthropics/skills", "OPENAI/SKILLS"]), "");
 });
+
+test("the collection being added shows Adding… and disables both buttons", () => {
+  const html = renderToStaticMarkup(
+    <SuggestedCollections
+      sources={[]}
+      busy={false}
+      adding="anthropics/skills"
+      onAdd={() => {}}
+    />,
+  );
+  assert.match(
+    html,
+    /aria-label="Add anthropics\/skills"[^>]*>Adding…<\/button>/,
+  );
+  assert.match(html, /aria-label="Add openai\/skills"[^>]*>Add<\/button>/);
+  assert.equal((html.match(/disabled=""/g) ?? []).length, 2);
+});

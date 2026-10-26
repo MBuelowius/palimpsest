@@ -178,12 +178,15 @@ test("Manage collections shares the controls and shows both suggestions with no 
         />,
       ),
     );
-    assert.match(
-      document.querySelector(".empty")!.textContent!,
-      /Add a collection to browse skills. The skills.md catalog is turned off in Settings./,
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Filter sources"]')!
+        .click(),
     );
     await act(async () =>
-      document.querySelector<HTMLButtonElement>(".empty button")!.click(),
+      [...document.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent === "Manage collections")!
+        .click(),
     );
     const dialog = document.querySelector('[role="dialog"]')!;
     checkCollections(dialog, []);

@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act } from "react";
-import { createRoot } from "react-dom/client";
 import { api, type Marketplace } from "./api";
 
 const source: Marketplace = {
@@ -48,6 +47,7 @@ test("marketplace combines sources and opens repository packages through the exi
   const installs = api.installs;
   api.installs = async () => ({});
   const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
+  const { createRoot } = await import("react-dom/client");
   const root = createRoot(document.getElementById("root")!);
   const opened: string[] = [];
   const sources = [source];
@@ -57,6 +57,7 @@ test("marketplace combines sources and opens repository packages through the exi
         <MarketplaceCatalog
           skillsMd={true}
           sources={sources}
+          onAddCollection={() => {}}
           onManageSources={() => {}}
           onRepositorySkill={async (id, skill) => {
             opened.push(id + "/" + skill);
@@ -65,7 +66,22 @@ test("marketplace combines sources and opens repository packages through the exi
       );
     });
     assert.equal(document.querySelectorAll(".store-tile").length, 2);
-    assert.match(document.body.textContent!, /skills.md/);
+    assert.equal(
+      document.querySelector(
+        '[data-hosted-skill="skills.md/logo"] .store-tile-source',
+      )?.textContent,
+      "skills.md · Can’t be added to apps",
+    );
+    assert.equal(
+      document.querySelector('[data-hosted-skill="skills.md/logo"] .store-get')
+        ?.textContent,
+      "View",
+    );
+    assert.equal(
+      document.querySelector(".store-shelf h2")?.textContent,
+      "GitHub packages",
+    );
+    assert.ok(!document.querySelector("#suggested-collections"));
     assert.match(document.body.textContent!, /owner\/skills/);
     assert.match(document.body.textContent!, /Includes scripts/);
     await act(async () => {
@@ -114,6 +130,7 @@ test("an unavailable source leaves skills from other sources browsable", async (
   const installs = api.installs;
   api.installs = async () => ({});
   const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
+  const { createRoot } = await import("react-dom/client");
   const root = createRoot(document.getElementById("root")!);
   try {
     await act(async () => {
@@ -121,6 +138,7 @@ test("an unavailable source leaves skills from other sources browsable", async (
         <MarketplaceCatalog
           skillsMd={true}
           sources={[source]}
+          onAddCollection={() => {}}
           onManageSources={() => {}}
           onRepositorySkill={async () => {}}
         />,
@@ -166,6 +184,7 @@ test("home shows capped category shelves and See all opens that category", async
   const installs = api.installs;
   api.installs = async () => ({});
   const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
+  const { createRoot } = await import("react-dom/client");
   const root = createRoot(document.getElementById("root")!);
   try {
     await act(async () => {
@@ -173,12 +192,14 @@ test("home shows capped category shelves and See all opens that category", async
         <MarketplaceCatalog
           skillsMd={true}
           sources={[]}
+          onAddCollection={() => {}}
           onManageSources={() => {}}
           onRepositorySkill={async () => {}}
         />,
       );
     });
     assert.equal(document.querySelectorAll(".store-tile").length, 12);
+    assert.ok(document.querySelector("#suggested-collections"));
     await act(async () => {
       (
         [...document.querySelectorAll("button")].find((button) =>
@@ -187,6 +208,7 @@ test("home shows capped category shelves and See all opens that category", async
       ).click();
     });
     assert.equal(document.querySelectorAll(".store-shelf").length, 0);
+    assert.equal(document.querySelector("#suggested-collections"), null);
     assert.equal(document.querySelectorAll(".store-tile").length, 14);
     assert.match(document.querySelector("h2")!.textContent!, /Design/);
     await act(async () => {
@@ -229,6 +251,7 @@ test("tiles show Installed and Update for skills added from that collection", as
   const installs = api.installs;
   api.installs = async () => ({});
   const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
+  const { createRoot } = await import("react-dom/client");
   const root = createRoot(document.getElementById("root")!);
   const entry = (name: string, update: boolean) => ({
     name,
@@ -247,6 +270,7 @@ test("tiles show Installed and Update for skills added from that collection", as
           sources={[source]}
           skills={[{ name: "current" }, { name: "outdated" }]}
           updates={[entry("current", false), entry("outdated", true)]}
+          onAddCollection={() => {}}
           onManageSources={() => {}}
           onRepositorySkill={async () => {}}
         />,
@@ -270,7 +294,7 @@ test("tiles show Installed and Update for skills added from that collection", as
   }
 });
 
-test("an empty marketplace points to suggestions when skills.md is unavailable", async () => {
+test("an unavailable skills.md catalogue keeps suggestions and Add calls onAddCollection", async () => {
   const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost" });
   const previous = { window: globalThis.window, document: globalThis.document };
   Object.assign(globalThis, {
@@ -285,25 +309,35 @@ test("an empty marketplace points to suggestions when skills.md is unavailable",
   const installs = api.installs;
   api.installs = async () => ({});
   const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
+  const { createRoot } = await import("react-dom/client");
   const root = createRoot(document.getElementById("root")!);
-  let opened = false;
+  const added: string[] = [];
   try {
     await act(async () => {
       root.render(
         <MarketplaceCatalog
           skillsMd={true}
           sources={[]}
-          onManageSources={() => {
-            opened = true;
-          }}
+          onAddCollection={(repo) => added.push(repo)}
+          onManageSources={() => {}}
           onRepositorySkill={async () => {}}
         />,
       );
     });
-    const button = document.querySelector<HTMLButtonElement>(".empty button");
-    assert.equal(button?.textContent, "Browse suggested collections");
-    await act(async () => button!.click());
-    assert.equal(opened, true);
+    assert.ok(document.querySelector("#suggested-collections"));
+    assert.equal(document.querySelector(".empty"), null);
+    assert.match(
+      document.querySelector('[role="alert"]')!.textContent!,
+      /Service unavailable/,
+    );
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Add anthropics/skills"]',
+        )!
+        .click(),
+    );
+    assert.deepEqual(added, ["anthropics/skills"]);
   } finally {
     await act(async () => root.unmount());
     api.installs = installs;
@@ -364,6 +398,7 @@ test("skills.md off makes no hosted request and leaves only repository tiles and
   ];
   api.installs = async () => ({});
   const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
+  const { createRoot } = await import("react-dom/client");
   const root = createRoot(document.getElementById("root")!);
   try {
     await act(async () =>
@@ -371,6 +406,7 @@ test("skills.md off makes no hosted request and leaves only repository tiles and
         <MarketplaceCatalog
           skillsMd={false}
           sources={[source]}
+          onAddCollection={() => {}}
           onManageSources={() => {}}
           onRepositorySkill={async () => {}}
         />,
@@ -400,5 +436,185 @@ test("skills.md off makes no hosted request and leaves only repository tiles and
     api.installs = installs;
     Object.assign(globalThis, previous);
     dom.window.close();
+  }
+});
+
+async function marketplaceDom() {
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost" });
+  const globals = {
+    window: dom.window,
+    document: dom.window.document,
+    fetch: async () => {
+      throw new Error("UI tests must stub api methods.");
+    },
+  };
+  const previous = Object.fromEntries(
+    Object.keys(globals).map((key) => [key, Reflect.get(globalThis, key)]),
+  );
+  Object.assign(globalThis, globals, { IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(document.getElementById("root")!);
+  return {
+    root,
+    cleanup: async () => {
+      await act(async () => root.unmount());
+      Object.assign(globalThis, previous);
+      dom.window.close();
+    },
+  };
+}
+
+test("Discover shows suggestions before loading finishes and hides them for a search", async (t) => {
+  const { root, cleanup } = await marketplaceDom();
+  let finish!: (
+    skills: Awaited<ReturnType<typeof api.skillsMdCatalogue>>,
+  ) => void;
+  t.mock.method(
+    api,
+    "skillsMdCatalogue",
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
+  try {
+    await act(async () =>
+      root.render(
+        <MarketplaceCatalog
+          skillsMd={true}
+          sources={[]}
+          onAddCollection={() => {}}
+          onManageSources={() => {}}
+          onRepositorySkill={async () => {}}
+        />,
+      ),
+    );
+    assert.ok(document.querySelector("#suggested-collections"));
+    assert.equal(document.querySelectorAll(".store-placeholder").length, 6);
+    assert.equal(
+      document
+        .querySelector(".store-tabs")
+        ?.nextElementSibling?.getAttribute("aria-labelledby"),
+      "suggested-collections",
+    );
+    await act(async () => finish([]));
+    const input = document.querySelector<HTMLInputElement>(
+      '[aria-label="Search marketplace"]',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "missing");
+      input.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    assert.equal(document.querySelector("#suggested-collections"), null);
+    assert.equal(
+      document.querySelector(".empty h3")?.textContent,
+      "No skills found",
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("with skills.md off and no sources, Discover shows suggestions without an empty state", async (t) => {
+  const { root, cleanup } = await marketplaceDom();
+  const hosted = t.mock.method(api, "skillsMdCatalogue", async () => []);
+  const { MarketplaceCatalog } = await import("./MarketplaceCatalog");
+  try {
+    await act(async () =>
+      root.render(
+        <MarketplaceCatalog
+          skillsMd={false}
+          sources={[]}
+          onAddCollection={() => {}}
+          onManageSources={() => {}}
+          onRepositorySkill={async () => {}}
+        />,
+      ),
+    );
+    assert.ok(document.querySelector("#suggested-collections"));
+    assert.equal(document.querySelector(".empty"), null);
+    assert.equal(document.querySelectorAll(".store-tile").length, 0);
+    assert.equal(hosted.mock.callCount(), 0);
+    assert.doesNotMatch(
+      document.body.textContent!,
+      /No skills found|No collections added/,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("Discover Add reports failures, then refreshes sources and announces a successful retry", async (t) => {
+  const { root, cleanup } = await marketplaceDom();
+  const { MarketplacesPage } = await import("./Marketplaces");
+  let finish!: () => void;
+  let fail!: (error: Error) => void;
+  const added = t.mock.method(
+    api,
+    "addMarketplace",
+    () =>
+      new Promise<Marketplace>((resolve, reject) => {
+        finish = () => resolve(source);
+        fail = reject;
+      }),
+  );
+  const listed = t.mock.method(api, "marketplaces", async () => [source]);
+  t.mock.method(api, "catalogue", async () => []);
+  t.mock.method(api, "installs", async () => ({}));
+  const changes: Marketplace[][] = [];
+  const props = {
+    skillsMd: false,
+    harnesses: [],
+    skills: [],
+    updates: [],
+    onSourcesChange: async (sources: Marketplace[]) => {
+      changes.push(sources);
+      root.render(<MarketplacesPage {...props} sources={sources} />);
+    },
+    onInstalled: async () => {},
+    onOpenSkill: () => {},
+    onUpdate: () => {},
+  };
+  try {
+    await act(async () =>
+      root.render(<MarketplacesPage {...props} sources={[]} />),
+    );
+    const add = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Add anthropics/skills"]',
+    )!;
+    await act(async () => add.click());
+    assert.equal(add.textContent, "Adding…");
+    assert.equal(add.disabled, true);
+    assert.equal(
+      document.querySelector<HTMLButtonElement>(
+        '[aria-label="Add openai/skills"]',
+      )!.disabled,
+      true,
+    );
+    assert.deepEqual(added.mock.calls[0].arguments, ["anthropics/skills"]);
+    await act(async () => fail(new Error("Could not add collection.")));
+    assert.equal(
+      document.querySelector('[role="alert"]')?.textContent,
+      "Could not add collection.",
+    );
+    assert.ok(document.querySelector("#suggested-collections"));
+    assert.equal(add.disabled, false);
+    assert.equal(listed.mock.callCount(), 0);
+    await act(async () => add.click());
+    await act(async () => finish());
+    assert.deepEqual(changes, [[source]]);
+    assert.equal(listed.mock.callCount(), 1);
+    assert.equal(document.querySelector("#suggested-collections"), null);
+    assert.equal(document.querySelector('[role="alert"]'), null);
+    assert.equal(
+      document.querySelector('[role="status"]')?.textContent,
+      "1 collection ready to browse.",
+    );
+  } finally {
+    await cleanup();
   }
 });

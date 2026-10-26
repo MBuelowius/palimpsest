@@ -11,6 +11,7 @@ User-visible changes are recorded here. Entries under Unreleased are not publish
 ### Added
 
 - One-command GitHub installation with `npx github:MBuelowius/palimpsest ui`; the local installer writes only under `~/.local`.
+- Suggested collections on first-visit Discover, with GitHub packages first and skills.md cards marked as unavailable to add to apps.
 - Skill policy controls in Settings: connect, refresh, inspect differences, preview and confirm pinned installs, and disconnect. Policy-disabled skills.md stays off without changing the saved preference.
 - `policy apply` previews required pinned installs and updates, including scan findings and skipped names. `--apply` saves them as one operation that a single restore undoes.
 - Public GitHub skill policy files with CLI connect, offline show, manual refresh and disconnect; server checks for allowed collections, blocked skills and pinned installs/updates, plus local drift reporting.

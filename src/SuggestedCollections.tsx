@@ -5,10 +5,12 @@ const collections = ["anthropics/skills", "openai/skills"];
 export function SuggestedCollections({
   sources,
   busy,
+  adding,
   onAdd,
 }: {
   sources: { repo: string }[];
   busy: boolean;
+  adding?: string;
   onAdd: (repo: string) => void;
 }) {
   const suggestions = collections.filter(
@@ -27,11 +29,11 @@ export function SuggestedCollections({
           <Button
             variant="outline"
             size="sm"
-            disabled={busy}
+            disabled={busy || !!adding}
             aria-label={`Add ${repo}`}
             onClick={() => onAdd(repo)}
           >
-            Add
+            {adding === repo ? "Adding…" : "Add"}
           </Button>
         </div>
       ))}
