@@ -24,6 +24,7 @@ import {
 } from "./api";
 import type { HostedSkill } from "../server/skillsMd";
 import { ProductHeader, SkillIcon } from "./ProductHeader";
+import { SuggestedCollections } from "./SuggestedCollections";
 
 const MarkdownContent = lazy(() =>
   import("./MarkdownContent").then((module) => ({
@@ -97,6 +98,8 @@ export function MarketplaceCatalog({
   skillsMd,
   skills: library = [],
   updates = [],
+  adding,
+  onAddCollection,
   onManageSources,
   onRepositorySkill,
 }: {
@@ -104,6 +107,8 @@ export function MarketplaceCatalog({
   skillsMd: boolean;
   skills?: { name: string }[];
   updates?: SkillUpdate[];
+  adding?: string;
+  onAddCollection: (repo: string) => void;
   onManageSources: () => void;
   onRepositorySkill: (sourceId: string, skillId: string) => Promise<void>;
 }) {
@@ -292,7 +297,13 @@ export function MarketplaceCatalog({
   );
   const categories = [...counts.keys()].sort();
   const shelves = [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .sort(
+      (a, b) =>
+        Number(b[0] === "GitHub packages") -
+          Number(a[0] === "GitHub packages") ||
+        b[1] - a[1] ||
+        a[0].localeCompare(b[0]),
+    )
     .slice(0, SHELF_COUNT)
     .map(([name, total]) => ({
       name,
@@ -340,6 +351,7 @@ export function MarketplaceCatalog({
           <span className="store-tile-description">{skill.description}</span>
           <span className="store-tile-source">
             {skill.source}
+            {!skill.repository && " · Can’t be added to apps"}
             {!!skill.scripts && " · Includes scripts"}
             {installs[skill.key] !== undefined &&
               ` · ${compact.format(installs[skill.key])} installs`}
@@ -356,19 +368,7 @@ export function MarketplaceCatalog({
     );
   }
   const emptyState =
-    !loading && !skills.length && !sources.length ? (
-      <div className="empty">
-        <h3>No collections added</h3>
-        <p>
-          {skillsMd
-            ? "Browse suggested collections in Sources to add skills."
-            : "Add a collection to browse skills. The skills.md catalog is turned off in Settings."}
-        </p>
-        <Button variant="outline" onClick={onManageSources}>
-          Browse suggested collections
-        </Button>
-      </div>
-    ) : !filtered.length && !error ? (
+    browsing && !filtered.length && !error ? (
       <div className="empty">
         <h3>No skills found</h3>
         <p>Try another search or clear your filters.</p>
@@ -542,6 +542,14 @@ export function MarketplaceCatalog({
           </button>
         ))}
       </nav>
+      {!sources.length && !browsing && (
+        <SuggestedCollections
+          sources={sources}
+          busy={!!adding}
+          adding={adding}
+          onAdd={onAddCollection}
+        />
+      )}
       {error && (
         <p role="alert" className="form-error">
           {error} Try refreshing the catalog.

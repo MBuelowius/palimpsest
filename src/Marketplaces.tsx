@@ -61,6 +61,7 @@ export function MarketplacesPage({
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState<string>();
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<MarketplacePreview | null>(null);
@@ -106,6 +107,20 @@ export function MarketplacesPage({
       setError((e as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+  async function addCollection(repo: string) {
+    setAdding(repo);
+    setError("");
+    setMessage("");
+    try {
+      await api.addMarketplace(repo);
+      await onSourcesChange(await api.marketplaces());
+      setMessage("1 collection ready to browse.");
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setAdding(undefined);
     }
   }
   const existing =
@@ -301,6 +316,8 @@ export function MarketplacesPage({
           skillsMd={skillsMd}
           skills={skills}
           updates={updates}
+          adding={adding}
+          onAddCollection={(repo) => void addCollection(repo)}
           onManageSources={() => {
             setError("");
             setAddOpen(true);
