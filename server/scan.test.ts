@@ -114,6 +114,28 @@ test("hidden Unicode is reported in any text file with code points and source li
   assert.equal(findings.at(-1)!.detail, "U+E007F");
 });
 
+test("a leading byte-order mark produces no findings", (t) => {
+  const directory = fixture(t, { "schema.xsd": "\ufeff<schema />\n" });
+  assert.deepEqual(scanPackage(directory, tree(directory).files), {
+    findings: [],
+    truncated: false,
+  });
+});
+
+for (const { content, line, detail } of [
+  { content: "Text\ufefftext", line: 1, detail: "U+FEFF" },
+  { content: "\ufeff\ufeffText", line: 1, detail: "U+FEFF" },
+  { content: "\ufeffText\u200btext", line: 1, detail: "U+200B" },
+  { content: "\ufeffText\n\ufefftext", line: 2, detail: "U+FEFF" },
+]) {
+  test(`hidden characters remain reported in ${JSON.stringify(content)}`, (t) => {
+    const directory = fixture(t, { "notes.txt": content });
+    assert.deepEqual(scanPackage(directory, tree(directory).files).findings, [
+      { kind: "hidden-character", file: "notes.txt", line, detail },
+    ]);
+  });
+}
+
 test("download-and-run commands include shell and PowerShell forms and continuations", (t) => {
   const commands = [
     "curl https://example.com/install | sh",

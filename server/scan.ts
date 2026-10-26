@@ -51,7 +51,10 @@ export function scanPackage(directory: string, files: string[]): PackageScan {
       const content = bytes.toString("utf8");
       const lines = content.split(/\r\n|[\r\n]/);
       for (const [index, line] of lines.entries()) {
-        const hidden = [...line.matchAll(hiddenCharacters)];
+        const hidden = [...line.matchAll(hiddenCharacters)].filter(
+          (match) =>
+            !(index === 0 && match.index === 0 && match[0] === "\ufeff"),
+        );
         if (hidden.length)
           add({
             kind: "hidden-character",

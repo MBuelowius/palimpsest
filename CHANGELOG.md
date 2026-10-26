@@ -4,6 +4,10 @@ User-visible changes are recorded here. Entries under Unreleased are not publish
 
 ## Unreleased
 
+### Fixed
+
+- Leading byte-order marks no longer appear in hidden-character findings; U+FEFF elsewhere is still reported.
+
 ### Added
 
 - Skill policy controls in Settings: connect, refresh, inspect differences, preview and confirm pinned installs, and disconnect. Policy-disabled skills.md stays off without changing the saved preference.
