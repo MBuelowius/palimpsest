@@ -7,7 +7,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const home = os.homedir();
 const target = path.join(home, ".local", "share", "skill-library", "app");
 const bin = path.join(home, ".local", "bin", "palimpsest");
-const source = path.join(home, "src", "repos", "palimpsest");
 if (!fs.existsSync(path.join(root, "dist", "cli.mjs")))
   throw new Error("Run npm run build before installing.");
 if (fs.existsSync(bin)) {
@@ -28,14 +27,4 @@ fs.writeFileSync(
   `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(path.join(target, "cli.mjs"))} "$@"\n`,
   { mode: 0o755 },
 );
-if (!fs.existsSync(source)) {
-  fs.mkdirSync(path.dirname(source), { recursive: true });
-  fs.cpSync(root, source, {
-    recursive: true,
-    filter: (p) =>
-      !["node_modules", "dist", ".DS_Store"].includes(path.basename(p)),
-  });
-}
-process.stdout.write(
-  `Installed: ${bin}\nSource: ${source}\nOpen: palimpsest ui\n`,
-);
+process.stdout.write(`Installed: ${bin}\nOpen: palimpsest ui\n`);

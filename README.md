@@ -33,19 +33,23 @@ Palimpsest does not execute skill scripts. A tool consuming an installed skill m
 
 Use **Review setup** to ask an installed Codex or Claude Code CLI to inspect your personal skills and propose changes. Palimpsest passes the inventory to the CLI and displays its report; the existing harness handles authentication, models, and tool use. Codex runs with its read-only sandbox; Claude runs in planning mode with only file-reading tools and no MCP servers. The review excludes app-managed plugins, synced skills, and system skills. Skill paths and inspected content go to the agent's configured provider and may use paid tokens. Reports stay in the current browser session; copy a report before reloading.
 
-## Run from source
+## Install and run
 
-Use Node.js 24 and npm. Git is required to download marketplace repositories. The local installer targets macOS and Linux; Windows installation is not supported.
+Use Node.js 24, npm, and Git on macOS or Linux. Windows installation is not supported.
 
 ```sh
-git clone https://github.com/MBuelowius/palimpsest.git
-cd palimpsest
-npm ci
-npm run build
-node dist/cli.mjs serve
+npx github:MBuelowius/palimpsest ui
 ```
 
-Open <http://127.0.0.1:4319>. This uses your real home directory. Sharing, editing, enabling, and installing skills can change its contents.
+npm downloads and builds Palimpsest from GitHub on the first run. `ui` starts a background server at <http://127.0.0.1:4319> and opens a browser on macOS. On Linux, open the printed URL yourself. Add `--no-open` to skip opening a browser. This uses your real home directory; sharing, editing, enabling, and installing skills can change its contents.
+
+Stop the server with:
+
+```sh
+npx github:MBuelowius/palimpsest stop
+```
+
+Always include the GitHub repository in the command. The same-named npm registry package belongs to a different project.
 
 ### Try an isolated library
 
@@ -53,24 +57,25 @@ On macOS or Linux, start with an empty temporary home:
 
 ```sh
 demo_home=$(mktemp -d)
-node dist/cli.mjs serve --home "$demo_home"
+npx github:MBuelowius/palimpsest ui --home "$demo_home"
 ```
 
-Open <http://127.0.0.1:4319> and create a skill. All library data for this server stays under the temporary directory. Stop the server with Ctrl+C. Use a different `--port` if 4319 is occupied.
+Open the printed URL and create a skill. All library data for this server stays under the temporary directory. Stop it with `npx github:MBuelowius/palimpsest stop --home "$demo_home"`. Use a different `--port` if 4319 is occupied, passing the same port to `stop`.
 
 ### Install the local command
 
-After building:
+For a permanent `palimpsest` command, clone the repository and run the local installer. `npm ci` builds the app automatically:
 
 ```sh
+git clone https://github.com/MBuelowius/palimpsest.git
+cd palimpsest
+npm ci
 npm run install:local
 export PATH="$HOME/.local/bin:$PATH"
 palimpsest ui
 ```
 
-Persist the PATH setting in your shell configuration if needed. The installer copies the build to `~/.local/share/skill-library/app` and writes `~/.local/bin/palimpsest`, tied to the Node executable used during installation. Reinstall after moving or replacing that Node executable. It also copies the source to `~/src/repos/palimpsest` if that directory does not exist, and retains an existing app installation as a timestamped backup.
-
-`ui` starts a background server and opens a browser on macOS. On Linux, open the printed URL yourself. Stop that server with `palimpsest stop`.
+Persist the PATH setting in your shell configuration if needed. The installer copies the build to `~/.local/share/skill-library/app` and writes `~/.local/bin/palimpsest`, tied to the Node executable used during installation. Reinstall after moving or replacing that Node executable. An existing app installation is retained as a timestamped backup. Stop the server with `palimpsest stop`.
 
 ## CLI
 

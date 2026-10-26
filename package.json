@@ -3,10 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "palimpsest": "dist/cli.mjs"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "dev:server": "tsx server/cli.ts serve --port 4318",
     "build": "tsc -b && vite build && node scripts/build.mjs",
+    "prepare": "npm run build",
     "test": "tsx --test server/*.test.ts src/*.test.tsx",
     "typecheck": "tsc -b",
     "start": "node dist/cli.mjs serve",
