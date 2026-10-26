@@ -67,6 +67,7 @@
 body {
   margin: 0;
   font-size: 14px;
+  accent-color: var(--primary);
 }
 button,
 input,
@@ -1146,7 +1147,6 @@ h3 {
 }
 .discover-source-filter input {
   flex-shrink: 0;
-  accent-color: var(--primary);
 }
 .discover-source-filter > button {
   margin-top: 8px;
